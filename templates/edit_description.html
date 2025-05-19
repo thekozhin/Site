@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}Редактирование описания{% endblock %}
+
+{% block body %}
+<div class="container mt-4">
+    <div class="card">
+        <div class="card-header">
+            <h4>{{ task.board_number }}</h4>
+        </div>
+        <div class="card-body">
+            <form method="POST">
+                <div class="mb-3">
+                    <label for="description" class="form-label">Описание:</label>
+                    <textarea class="form-control" id="description" name="description" rows="5" required>{{ task.description }}</textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">Сохранить</button>
+                <a href="{{ url_for('index') }}" class="btn btn-secondary">Отмена</a>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

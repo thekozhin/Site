@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+
+{% block title %}Утренний отчет 7-00{% endblock %}
+
+{% block body %}
+
+<div class="container mt-4 document-style" id="report-content">
+    <!-- Шапка отчета -->
+            <h4 class="mb-0">Доброе утро! СТО «Теплый Стан» Утренний отчет: {{ date }} на {{ time }}</h4>
+<br>
+    <!-- Основная информация -->
+    <div class="row">
+        <div class="col-md-6">
+                    <h5>Всего в парке Автобусы: {{ fleet_size.count }} ед.</h5>
+                    <h5>КТГ по 8-му контракту: <strong class="text-success">{{ ktg|round(2) }}%</strong></h5>
+        </div>
+    </div>
+<br>
+    <!-- Секция "В работе" -->
+    <div class="document-section-4">
+        <h5>В работе на утро: {{ in_work|length }} бортов</h5>
+        {% for task in in_work %}
+            <div class="list-group-item">
+                <strong>{{ task.board_number }}</strong> - {{ task.description }}
+            </div>
+        {% endfor %}
+    </div>
+<br>
+    <!-- Секция "В ожидании" -->
+    <div class="document-section mb-4">
+            <h5>В ожидании ремонта/ОЗЧ: {{ waiting|length }}</h5>
+        <div class="card-body">
+                {% for task in waiting %}
+                <div class="list-group-item">
+                    <strong>{{ task.board_number }}</strong> - {{ task.description }}
+                    {% if task.tag == 'ozch' %}
+                    {% endif %}
+                </div>
+                {% endfor %}
+        </div>
+    </div>
+<br>
+    <!-- Кузовной ремонт -->
+        <div class="col-md-6">
+                    <h5>В кузовном ремонте:</h5>
+                        <div class="document-body">
+                            <label class="form-label">По гарантии:</label>
+                        </div>
+                        <div class="document-body">
+                            <label class="form-label">По коммерции:</label>
+                        </div>
+<br>
+            <h5>В ожидании кузовного ремонта:</h5>
+                        <div class="document-body">
+                            <label class="form-label">По гарантии:</label>
+                        </div>
+                        <div class="document-body">
+                            <label class="form-label">По коммерции:</label>
+                        </div>
+
+
+        </div>
+<br>
+    <!-- Форма ЕТО -->
+    <div class="document mb-4">
+        <div class="document-body">
+                    <div class="col-md-6">
+                        <label class="form-label">Сезонное обслуживание: {{ seasonal_service }}</label>
+                    </div>
+                    <br>
+                    <div class="col-md-6">
+                        <label class="form-label">Прошло ЕТО: {{ eto_passed }} ({{ eto_percentage|round(2) }}%)</label>
+                    </div>
+
+        </div>
+    </div>
+</div>
+       <div class="no-print mt-4 text-center">
+        <button id="copyReportBtn" class="btn btn-primary">
+            <i class="bi bi-clipboard"></i> Копировать отчет
+        </button>
+        <a href="{{ url_for('reports') }}" class="btn btn-secondary ms-2">
+            <i class="bi bi-arrow-left"></i> Назад к выбору
+        </a>
+    </div>
+
+
+<style>
+    .card-header h5 {
+        margin-bottom: 0;
+    }
+    .list-group-item {
+        padding: 0.75rem 1.25rem;
+    }
+    @media print {
+        .no-print {
+            display: none !important;
+        }
+        body {
+            padding: 0;
+            font-size: 12pt;
+        }
+        .card {
+            border: none;
+            margin-bottom: 5mm;
+        }
+        .card-header {
+            background-color: #fff !important;
+            color: #000 !important;
+            border-bottom: 2px solid #000;
+        }
+    }
+</style>
+
+<script>
+
+document.addEventListener('DOMContentLoaded', function() {
+    const copyBtn = document.getElementById('copyReportBtn');
+    const saveBtn = document.getElementById('save_7');
+
+    // Оригинальный код для копирования отчета
+    copyBtn.addEventListener('click', function() {
+        // Получаем содержимое отчета
+        const reportContent = document.getElementById('report-content').innerText;
+
+        // Копируем в буфер обмена
+        navigator.clipboard.writeText(reportContent)
+            .then(() => {
+                // Временное изменение текста кнопки для подтверждения
+                const originalText = copyBtn.innerHTML;
+                copyBtn.innerHTML = '<i class="bi bi-check2"></i> Скопировано!';
+
+                // Возвращаем исходный текст через 2 секунды
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalText;
+                }, 2000);
+            })
+            .catch(err => {
+                console.error('Ошибка копирования: ', err);
+                alert('Не удалось скопировать отчет. Попробуйте снова.');
+            });
+
+        // Дополнительно вызываем сохранение данных (как в save_7)
+        saveData();
+    });
+
+    // Оригинальный код для кнопки сохранения
+    saveBtn.addEventListener('click', function() {
+        saveData();
+    });
+
+    // Общая функция сохранения данных
+    async function saveData() {
+        try {
+            const response = await fetch('/save_7', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({})
+            });
+
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                // Визуальное подтверждение для кнопки сохранения
+                saveBtn.innerHTML = '<i class="bi bi-check2"></i> Сохранено!';
+                setTimeout(() => {
+                    saveBtn.innerHTML = '<i class="bi bi-save"></i> Заполнить на 7-00';
+                    location.reload(); // Обновляем страницу
+                }, 2000);
+            } else {
+                alert('Ошибка: ' + result.message);
+            }
+        } catch (error) {
+            {#console.error('Ошибка:', error);#}
+            {#alert('Не удалось сохранить данные');#}
+        }
+    }
+});
+</script>
+
+{% endblock %}

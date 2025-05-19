@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}Отчет {{ time }} {{ date }}{% endblock %}
+
+{% block body %}
+<div class="container mt-4 document-style" id="report-content">
+    <!-- Шапка документа -->
+    <div class="text-left mb-4">
+        <h5 class="mb-1">Отчет по эксплуатации СТО Теплый Стан на 19:00 {{ date }}</h5>
+    </div>
+    <br> <!-- вставка пустой строки -->
+    <div class="document-section">
+        <h6 class="document-section-title">КТГ за сутки:</h6>
+        <br> <!-- вставка пустой строки -->
+        <h6 class="document-section-title">КТГ по 8-му контракту - {{ avg_percentage }} %</h6>
+        <br> <!-- вставка пустой строки -->
+        <h6 class="document-section-title">В работе - {{ in_work|length }} ед.</h6>
+        <h6 class="document-section-title">В ожидании ремонта - {{ waiting|length }} ед.</h6>
+    </div>
+</div>
+    <!-- Кнопки управления -->
+    <div class="no-print mt-4 text-center">
+        <button id="copyReportBtn" class="btn btn-primary">
+            <i class="bi bi-clipboard"></i> Копировать отчет
+        </button>
+        <a href="{{ url_for('reports') }}" class="btn btn-secondary ms-2">
+            <i class="bi bi-arrow-left"></i> Назад к выбору
+        </a>
+    </div>
+
+    <script>
+
+document.addEventListener('DOMContentLoaded', function() {
+    const copyBtn = document.getElementById('copyReportBtn');
+    const saveBtn = document.getElementById('save_17');
+
+    // Оригинальный код для копирования отчета
+    copyBtn.addEventListener('click', function() {
+        // Получаем содержимое отчета
+        const reportContent = document.getElementById('report-content').innerText;
+
+        // Копируем в буфер обмена
+        navigator.clipboard.writeText(reportContent)
+            .then(() => {
+                // Временное изменение текста кнопки для подтверждения
+                const originalText = copyBtn.innerHTML;
+                copyBtn.innerHTML = '<i class="bi bi-check2"></i> Скопировано!';
+
+                // Возвращаем исходный текст через 2 секунды
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalText;
+                }, 2000);
+            })
+            .catch(err => {
+                console.error('Ошибка копирования: ', err);
+                alert('Не удалось скопировать отчет. Попробуйте снова.');
+            });
+
+        // Дополнительно вызываем сохранение данных (как в save_17)
+        saveData();
+    });
+
+    // Оригинальный код для кнопки сохранения
+    saveBtn.addEventListener('click', function() {
+        saveData();
+    });
+
+    // Общая функция сохранения данных
+    async function saveData() {
+        try {
+            const response = await fetch('/save_17', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({})
+            });
+
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                // Визуальное подтверждение для кнопки сохранения
+                saveBtn.innerHTML = '<i class="bi bi-check2"></i> Сохранено!';
+                setTimeout(() => {
+                    saveBtn.innerHTML = '<i class="bi bi-save"></i> Заполнить на 17-00';
+                    location.reload(); // Обновляем страницу
+                }, 2000);
+            } else {
+                alert('Ошибка: ' + result.message);
+            }
+        } catch (error) {
+            {#console.error('Ошибка:', error);#}
+            {#alert('Не удалось сохранить данные');#}
+        }
+    }
+});
+</script>
+{% endblock %}

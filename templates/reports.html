@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block title %}Отчеты{% endblock %}
+
+{% block body %}
+<div class="container mt-4">
+    <div class="row mt-4">
+        <!-- Левая колонка -->
+        <div class="col-md-6">
+            <!-- Карточка с отчетами -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Доступные отчеты</h5>
+                </div>
+                <div class="card-body">
+                    <div class="list-group">
+                        <a href="{{ url_for('report_7') }}" class="list-group-item list-group-item-action">
+                            Утренний отчет 7-00
+                        </a>
+                        <a href="{{ url_for('report_14') }}" class="list-group-item list-group-item-action">
+                            Дневной отчет 14-00
+                        </a>
+                        <a href="{{ url_for('report_17') }}" class="list-group-item list-group-item-action">
+                            Вечерний отчет 17-00
+                        </a>
+                        <a href="{{ url_for('report_19') }}" class="list-group-item list-group-item-action">
+                            Итоговый отчет 19-00
+                        </a>
+                        <a href="{{ url_for('itr_7') }}" class="list-group-item list-group-item-action">
+                            В ИТР на 7-00
+                        </a>
+                        <a href="{{ url_for('itr_19') }}" class="list-group-item list-group-item-action">
+                            В ИТР на 19-00
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Количество бортов в парке (перемещено сюда) -->
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5>Количество бортов в парке</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-bordered" id="fleetTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 60%">Локация</th>
+                                <th style="width: 40%">Количество</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for fleet in fleet_sizes %}
+                            <tr>
+                                <td>{{ fleet.location }}</td>
+                                <td>
+                                    <input type="number" class="form-control form-control-sm fleet-input"
+                                           value="{{ fleet.count }}" data-location="{{ fleet.location }}">
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    <button id="saveFleetBtn" class="btn btn-primary mt-3">
+                        <i class="bi bi-save"></i> Сохранить изменения
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Правая колонка -->
+        <div class="col-md-6">
+            <!-- Для отчета (перемещено сюда) -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Для отчёта</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-bordered" id="dateTable">
+                        <thead class="table-light">
+                        </thead>
+                        <tbody>
+                            {% for item in date %}
+                            <tr>
+                                <td>{{ item.location }}</td>  <!-- Используйте реальное имя поля из вашей модели -->
+                                <td>
+                                    <input type="number" class="form-control form-control-sm date-input"
+                                           value="{{ item.count }}" data-location="{{ item.location }}">
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    <button id="saveDateBtn" class="btn btn-primary mt-3">
+                        <i class="bi bi-save"></i> Сохранить изменения
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Обработчик для сохранения данных
+    document.getElementById('saveFleetBtn').addEventListener('click', function() {
+        const inputs = document.querySelectorAll('.fleet-input');
+        const data = [];
+
+        inputs.forEach(input => {
+            data.push({
+                location: input.dataset.location,
+                count: parseInt(input.value) || 0
+            });
+        });
+
+        fetch('/update_fleet', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                {#alert('Данные флота успешно обновлены');#}
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Ошибка при сохранении данных флота');
+        });
+    });
+
+    // Обработчик для сохранения данных дат
+document.getElementById('saveDateBtn').addEventListener('click', function() {
+    const inputs = document.querySelectorAll('.date-input');
+    const data = [];
+
+    inputs.forEach(input => {
+        data.push({
+            location: input.dataset.location,
+            count: parseInt(input.value) || 0
+        });
+    });
+
+    fetch('/update_date', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            {#alert('Данные успешно обновлены');#}
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Ошибка при сохранении');
+    });
+});
+});
+</script>
+
+<style>
+    #fleetTable input, #dateTable input {
+        min-width: 80px;
+    }
+    .table-bordered {
+        border: 1px solid #dee2e6;
+    }
+    .card {
+        margin-bottom: 20px;
+    }
+</style>
+{% endblock %}

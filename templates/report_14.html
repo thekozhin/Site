@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Отчет {{ time }} {{ date }}{% endblock %}
+
+{% block body %}
+<div class="container mt-4 document-style" id="report-content">
+    <!-- Шапка документа -->
+    <div class="text-left mb-4">
+        <h5 class="mb-1">Отчет по эксплуатации СТО Теплый Стан на 14:00 {{ date }}</h5>
+    </div>
+    <br> <!-- вставка пустой строки -->
+    <!-- Секция "В работе" -->
+    <div class="document-section">
+        <h5 class="document-section-title">В работе - {{ in_work|length }} ед.</h5>
+        <div class="document-list">
+            {% for task in in_work %}
+            <div class="document-item">
+                <div class="document-item-content">
+                    <strong>{{ task.board_number }}</strong> - {{ task.description }}
+                    {% if task.completed_work %}
+                    <div class="document-completed">Выполнено: {{ task.completed_work }}</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    <br> <!-- вставка пустой строки -->
+    <!-- Секция "В ожидании" -->
+    <div class="document-section mt-4">
+        <h5 class="document-section-title">В ожидании ремонта - {{ waiting|length }} ед.</h5>
+        <div class="document-list">
+            {% for task in waiting %}
+            <div class="document-item">
+                <div class="document-item-content">
+                    <strong>{{ task.board_number }}</strong> - {{ task.description }}
+                    {% if task.tag == 'ozch' %}
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+    <!-- Кнопки управления (не печатаются) -->
+    <div class="no-print mt-4 text-center">
+        <button id="copyReportBtn" class="btn btn-primary">
+            <i class="bi bi-clipboard"></i> Копировать отчет
+        </button>
+        <a href="{{ url_for('reports') }}" class="btn btn-secondary ms-2">
+            <i class="bi bi-arrow-left"></i> Назад к выбору
+        </a>
+    </div>
+
+
+<style>
+    .document-item {
+        display: flex;
+        margin-bottom: 8px;
+        padding-bottom: 8px;
+        border-bottom: 1px dashed #ccc;
+    }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const copyBtn = document.getElementById('copyReportBtn');
+
+    copyBtn.addEventListener('click', function() {
+        // Получаем содержимое отчета
+        const reportContent = document.getElementById('report-content').innerText;
+
+        // Копируем в буфер обмена
+        navigator.clipboard.writeText(reportContent)
+            .then(() => {
+                // Временное изменение текста кнопки для подтверждения
+                const originalText = copyBtn.innerHTML;
+                copyBtn.innerHTML = '<i class="bi bi-check2"></i> Скопировано!';
+
+                // Возвращаем исходный текст через 2 секунды
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalText;
+                }, 2000);
+            })
+            .catch(err => {
+                console.error('Ошибка копирования: ', err);
+                alert('Не удалось скопировать отчет. Попробуйте снова.');
+            });
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Редактирование электробуса{% endblock %}
+
+{% block body %}
+<div class="container mt-4">
+    <div class="card">
+        <div class="card-header">
+            <h4>Редактирование электробуса</h4>
+        </div>
+        <div class="card-body">
+            <form method="POST">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Борт №</label>
+                        <input type="text" class="form-control" name="bort" value="{{ elcar.bort }}" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Гос. номер</label>
+                        <input type="text" class="form-control" name="gos_number" value="{{ elcar.gos_number }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Год выпуска</label>
+                        <input type="number" class="form-control" name="year" value="{{ elcar.year }}">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">VIN</label>
+                        <input type="text" class="form-control" name="vin" value="{{ elcar.vin }}">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Местонахождение</label>
+                        <input type="text" class="form-control" name="location" value="{{ elcar.location }}">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Контракт</label>
+                        <input type="text" class="form-control" name="contract" value="{{ elcar.contract }}">
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">Сохранить</button>
+                        <a href="{{ url_for('electrobuses') }}" class="btn btn-secondary">Отмена</a>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const bortInput = document.querySelector('input[name="bort"]');
+    const form = document.querySelector('form');
+
+    form.addEventListener('submit', function(e) {
+        const bortValue = parseInt(bortInput.value);
+        if (isNaN(bortValue)) {
+            alert('Номер борта должен быть числом');
+            e.preventDefault();
+        }
+    });
+});
+</script>

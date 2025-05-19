@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Готовые задачи{% endblock %}
+
+{% block body %}
+<div class="mt-4">
+<h5>Закрытые заявки</h5>
+    <div class="list-group mt-3">
+        {% for task in tasks %}
+        <div class="list-group-item">
+            <div class="d-flex justify-content-between align-items-start">
+                <div class="flex-grow-1">
+                    <h5 class="mb-1">{{ task.board_number }}</h5>
+                    <p class="mb-1 text-muted">{{ task.description.replace('\n', ', ') }}</p>
+                    {% if task.completed_work %}
+                    <p class="mb-1 text-success small">{{ task.completed_work.replace('\n', ', ') }}</p>
+                    {% endif %}
+                </div>
+                <div class="text-end ms-3" style="min-width: 180px;">
+                    <div class="text-muted small">
+                        {{ task.created_at.strftime('%d.%m.%y %H:%M') }}
+                    </div>
+                    <div class="text-success small">
+                        {{ task.moscow_time(task.completed_at).strftime('%d.%m.%y %H:%M') }}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.querySelector('.form-control-dark');
+    const taskItems = document.querySelectorAll('.list-group-item');
+
+    searchInput.addEventListener('input', function() {
+        const searchTerm = this.value.toLowerCase();
+
+        taskItems.forEach(item => {
+            const text = item.textContent.toLowerCase();
+            if (text.includes(searchTerm)) {
+                item.style.display = '';
+            } else {
+                item.style.display = 'none';
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

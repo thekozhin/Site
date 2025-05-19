@@ -1,0 +1,121 @@
+/* буквы шапки */
+.small-caps {font-variant: small-caps;}
+.nav-link {font-family: Arial, sans-serif, sans-serif;font-weight: bold;}
+
+/* эмблемма' */
+.header__img {
+    height: 52px;
+    width: 67px;
+}
+
+header {
+    position: sticky;
+    top: 0;
+    padding: 10px;
+    z-index: 1000;
+    background: #fff;
+    -webkit-box-shadow: 0 5px 25px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 5px 25px rgba(0, 0, 0, 0.15);
+}
+
+/* для кнопки ВХОД */
+
+
+.btn-outline-orange:hover {
+    color: #ffc107;
+    border-color: #ffc107;
+}
+
+.btn-outline-orange {
+    color: #000;
+    background-color: #ffc107;
+    border-color: #ffc107;
+}
+
+/* для кнопки Добавить */
+
+.btn-outline-blue:hover {
+    color: #0777ff;
+    border-color: #0777ff;
+}
+
+.btn-outline-blue {
+    color: #000;
+    background-color: #0777ff;
+    border-color: #0777ff;
+}
+
+/* Цвета для меток статусов */
+.tag-pill {
+    padding: 0.35em 0.65em;
+    font-size: 0.70em; /* размер статуса */
+    font-weight: 700;
+    display: inline-block;
+    margin-right: 0.5rem;
+}
+
+.tag-in_work {color: white;background-color: #28a745; /* Зеленый */}
+.tag-waiting {color: white;background-color: #ffc107; /* Желтый */}
+.tag-ozch {color: white;background-color: #a65909; /* Красный */}
+.tag-no_request {color: white;background-color: #dc3545; /* Красный */}
+.tag-to {color: white;background-color: #006ff3; /* Синий */}
+
+/* Стиль для иконки редактирования */
+.bi-pencil-square {
+    color: #6c757d;
+    font-size: 0.9em;
+    transition: color 0.2s;
+}
+
+.bi-pencil-square:hover {color: #0d6efd;}
+
+/* Стили для таблицы автобусов */
+.table-buses {
+    font-size: 0.9rem;
+}
+
+.table-buses input {
+    border: 1px solid #dee2e6;
+    padding: 0.25rem 0.5rem;
+    width: 100%;
+}
+
+.table-buses .btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+}
+
+/* Добавьте в ваш main.css */
+.filter-card {
+    margin-bottom: 20px;
+    background-color: #f8f9fa;
+}
+.filter-card .card-title {
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+    font-weight: 500;
+}
+
+    /* Чередование цветов для задач */
+.list-group-item:nth-child(even) {
+    background-color: #f8f9fa;
+}
+.list-group-item:nth-child(odd) {
+    background-color: white;
+}
+
+    .contract-badge {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        text-align: center;
+        line-height: 16px;
+        font-size: 10px;
+        color: white;
+        margin-left: 5px;
+    }
+    .badge-1 { background-color: #0777ff; } /* МГТ0105-21 - 8 контракт */
+    .badge-2 { background-color: #15a60e; } /* 216644 - 2 контракт*/
+    .badge-3 { background-color: #df8605; } /* 222150 - 6 контракт */
+    .badge-unknown { background-color: #6c757d; } /* неизвестный контракт - серый */

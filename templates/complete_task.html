@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Завершение задачи{% endblock %}
+
+{% block body %}
+<div class="container mt-4">
+    <div class="card">
+        <div class="card-header">
+            <h4>Завершение задачи: Борт №{{ task.board_number }}</h4>
+        </div>
+        <div class="card-body">
+            {% if not show_print_prompt %}
+                <p><strong>Описание проблемы:</strong></p>
+                <p class="text-muted">{{ task.description.replace('\n', ', ') }}</p>
+
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="completed_work" class="form-label">Выполненные работы:</label>
+                        <textarea class="form-control" id="completed_work" name="completed_work" rows="3" required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-success">Подтвердить завершение</button>
+                    <a href="{{ url_for('index') }}" class="btn btn-secondary">Отмена</a>
+                </form>
+            {% else %}
+                <div class="alert alert-success">
+                    <h5>Задача успешно завершена!</h5>
+                    <p>Хотите распечатать заявку?</p>
+                    <form method="POST" onsubmit="setTimeout(function(){ window.location='{{ url_for('index') }}'; }, 1000);">
+                        <input type="hidden" name="print_decision" value="yes">
+                        <button type="submit" class="btn btn-primary me-2">Да, печатать</button>
+                        <a href="{{ url_for('index') }}" class="btn btn-secondary">Нет, спасибо</a>
+                    </form>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Отчет {{ time }} {{ date }}{% endblock %}
+
+{% block body %}
+<div class="container mt-4 document-style" id="report-content">
+    <!-- Шапка документа -->
+    <div class="text-left mb-4">
+        <h5 class="mb-1">Доброе утро! На  {{ date }}</h5>
+       <h5 class="mb-1">СЦ "Теплый Стан"</h5>
+    </div>
+    <br> <!-- вставка пустой строки -->
+
+    <!-- Таблица с данными -->
+    <table class="text-left mb-4">
+        <tbody>
+            {% for item in date_data %}
+            <tr>
+                <td>{{ item.location }}</td>
+                <td>{{ item.count }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+
+</div>
+    <!-- Кнопки управления (не печатаются) -->
+    <div class="no-print mt-4 text-center">
+        <button id="copyReportBtn" class="btn btn-primary">
+            <i class="bi bi-clipboard"></i> Копировать отчет
+        </button>
+        <a href="{{ url_for('reports') }}" class="btn btn-secondary ms-2">
+            <i class="bi bi-arrow-left"></i> Назад к выбору
+        </a>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const copyBtn = document.getElementById('copyReportBtn');
+
+    copyBtn.addEventListener('click', function() {
+        // Получаем содержимое отчета
+        const reportContent = document.getElementById('report-content').innerText;
+
+        // Копируем в буфер обмена
+        navigator.clipboard.writeText(reportContent)
+            .then(() => {
+                // Временное изменение текста кнопки для подтверждения
+                const originalText = copyBtn.innerHTML;
+                copyBtn.innerHTML = '<i class="bi bi-check2"></i> Скопировано!';
+
+                // Возвращаем исходный текст через 2 секунды
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalText;
+                }, 2000);
+            })
+            .catch(err => {
+                console.error('Ошибка копирования: ', err);
+                alert('Не удалось скопировать отчет. Попробуйте снова.');
+            });
+    });
+});
+</script>
+
+{% endblock %}
