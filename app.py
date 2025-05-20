@@ -197,6 +197,7 @@ def delete_car(car_id):
 def edit_description(task_id):
     task = Task.query.get_or_404(task_id)
 
+
     if request.method == 'POST':
         task.description = request.form['description']
         db.session.commit()
@@ -254,20 +255,32 @@ def about():
 
 @app.route('/add_task', methods=['POST'])
 def add_task():
-    board_number = request.form['board_number']
-    description = request.form['description']
+    try:
+        board_number = request.form['board_number']
+        description = request.form['description']
 
-    new_task = Task(
-        board_number=board_number,
-        description=description,
-        status='in_repair'
-    )
+        # Проверка количества строк
+        if len(description.split('\n')) > 5:
+            # flash('Описание должно содержать не более 5 строк', 'error')
+            return redirect(url_for('index'))
 
-    db.session.add(new_task)
-    db.session.commit()
 
-    return redirect(url_for('index'))
+        new_task = Task(
+            board_number=board_number,
+            description=description,
+            status='in_repair'
+        )
 
+        db.session.add(new_task)
+        db.session.commit()
+
+        # flash('Задача успешно добавлена', 'success')
+        return redirect(url_for('index'))
+
+    except Exception as e:
+        db.session.rollback()
+        # flash(f'Ошибка при добавлении задачи: {str(e)}', 'danger')
+        return redirect(url_for('index'))
 @app.context_processor
 def inject_pytz():
     return {'pytz': pytz}
@@ -306,6 +319,12 @@ def complete_task(task_id):
                 return redirect(url_for('print_task', task_id=task_id))
             else:
                 return redirect(url_for('index'))
+
+         # Проверка количества строк
+        completed_work = request.form['completed_work']
+        if len(completed_work.split('\n')) > 5:
+            flash('Максимум 5 строк в описании выполненных работ', 'error')
+            return render_template('complete_task.html', task=task, show_print_prompt=False)
 
         # Если это первоначальное завершение задачи
         task.status = 'completed'
@@ -779,6 +798,18 @@ def print_task(task_id):
     # Определяем, какой транспорт (автобус или электробус)
     vehicle = car if car else elcar
 
+    # Разделяем описание на строки
+    description_lines = task.description.split('\n') if task.description else []
+    # Заполняем до 5 строк пустыми значениями
+    while len(description_lines) < 5:
+        description_lines.append('')
+
+    # Разделяем описание неисправности на строки
+    completed_lines = task.completed_work.split('\n') if task.completed_work else []
+    # Заполняем до 5 строк пустыми значениями
+    while len(completed_lines) < 5:
+        completed_lines.append('')
+
     # Загружаем шаблон
     doc = DocxTemplate("template.docx")
 
@@ -789,14 +820,22 @@ def print_task(task_id):
         "created_at": task.created_at.strftime('%d.%m.%Y'),
         "h": task.created_at.strftime('%H'),
         "m": task.created_at.strftime('%M'),
-        "date_go": task.created_at.strftime('%d.%B.%y'),
+        "date_go": task.created_at.strftime('%d.%m.%y'),
         "time_go": task.created_at.strftime('%H:%M'),
-        "date_end": task.completed_at.strftime('%d.%B.%y'),
+        "date_end": task.completed_at.strftime('%d.%m.%y'),
         "time_end": task.completed_at.strftime('%H:%M'),
         'completed_at': task.completed_at.strftime('%d.%m.%Y %H:%M') if task.completed_at else '',
         'status': task.status,
-        'description': task.description,
-        'completed_work': task.completed_work,
+        'description_1': description_lines[0] if len(description_lines) > 0 else '',
+        'description_2': description_lines[1] if len(description_lines) > 1 else '',
+        'description_3': description_lines[2] if len(description_lines) > 2 else '',
+        'description_4': description_lines[3] if len(description_lines) > 3 else '',
+        'description_5': description_lines[4] if len(description_lines) > 4 else '',
+        'completed_work_1': completed_lines[0] if len(completed_lines) > 0 else '',
+        'completed_work_2': completed_lines[1] if len(completed_lines) > 1 else '',
+        'completed_work_3': completed_lines[2] if len(completed_lines) > 2 else '',
+        'completed_work_4': completed_lines[3] if len(completed_lines) > 3 else '',
+        'completed_work_5': completed_lines[4] if len(completed_lines) > 4 else '',
         'vehicle': {
             'bort': vehicle.bort if vehicle else 'Не указан',
             'gos_number': vehicle.gos_number if vehicle else 'Не указан',

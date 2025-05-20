@@ -35,4 +35,21 @@
         </div>
     </div>
 </div>
+
+<script>
+document.getElementById('completed_work').addEventListener('input', function() {
+    const lines = this.value.split('\n');
+    if (lines.length > 5) {
+        this.value = lines.slice(0, 5).join('\n');
+        alert('Максимум 5 строк в описании работ');
+    }
+
+        // Проверка длины строк
+    const newLines = lines.map(line => line.slice(0, 60));
+    if (newLines.some((line, i) => line.length !== lines[i].length)) {
+        this.value = newLines.join('\n');
+        alert('....Пушкин! тормози');
+    }
+});
+</script>
 {% endblock %}
