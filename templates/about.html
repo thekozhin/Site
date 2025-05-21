@@ -21,7 +21,7 @@
                         {{ task.created_at.strftime('%d.%m.%y %H:%M') }}
                     </div>
                     <div class="text-success small">
-                        {{ task.moscow_time(task.completed_at).strftime('%d.%m.%y %H:%M') }}
+                        {{ task.completed_at.strftime('%d.%m.%y %H:%M') }}
                     </div>
                 </div>
             </div>
