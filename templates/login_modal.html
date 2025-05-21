@@ -1,0 +1,37 @@
+<!-- templates/login_modal.html -->
+<div class="modal fade" id="loginModal" tabindex="-1" aria-labelledby="loginModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="POST" action="{{ url_for('login') }}" class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="loginModalLabel">Вход в систему</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Flash сообщения для модального окна логина -->
+        {% with messages = get_flashed_messages(category_filter=["login_error"]) %}
+          {% if messages %}
+            <div class="alert alert-danger alert-dismissible fade show mb-3" role="alert">
+              {% for message in messages %}
+                {{ message }}
+              {% endfor %}
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        <div class="mb-3">
+          <label for="modalUsername" class="form-label">Имя пользователя</label>
+          <input type="text" class="form-control" id="modalUsername" name="username" required>
+        </div>
+        <div class="mb-3">
+          <label for="modalPassword" class="form-label">Пароль</label>
+          <input type="password" class="form-control" id="modalPassword" name="password" required>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+        <button type="submit" class="btn btn-primary">Войти</button>
+      </div>
+    </form>
+  </div>
+</div>

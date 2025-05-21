@@ -1,18 +1,20 @@
-from flask import Flask #render_template, request, redirect, url_for
-from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime, timedelta
-import pytz
-import os
-from flask import jsonify  #request
-from sqlalchemy import and_
-from docxtpl import DocxTemplate
-from flask import send_file, make_response
 import io
-# from sqlalchemy.orm import joinedload
+import os
+from datetime import datetime, timedelta
 
-
+import pytz
+from docxtpl import DocxTemplate
+from flask import Flask
+from flask import jsonify
+from flask import send_file, make_response
+from flask_login import UserMixin, LoginManager, login_user, logout_user, login_required
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import and_
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
+app.secret_key = 'klp0210'  # Важно добавить секретный ключ
+
 # Указываем полный путь к базе данных
 db_path = os.path.join(os.path.dirname(__file__), 'list.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
@@ -20,22 +22,74 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'connect_args': {'check_same_thread': False}}
 db = SQLAlchemy(app)
 
+# Инициализация Flask-Login (перенесено на уровень приложения)
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+class User(UserMixin, db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(64), unique=True, nullable=False)
+    password_hash = db.Column(db.String(128), nullable=False)
+    full_name = db.Column(db.String(100))  # Новое поле для ФИО
+    remember_me = db.Column(db.Boolean, default=False)
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 class Task(db.Model):
-    __tablename__ = 'task'  # Явно указываем имя таблицы
+    __tablename__ = 'task'
     id = db.Column(db.Integer, primary_key=True)
     board_number = db.Column(db.String(20), nullable=False)
     description = db.Column(db.Text, nullable=False)
     completed_work = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(pytz.timezone('Europe/Moscow')))
-    completed_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime, default=lambda: datetime.now(pytz.timezone('Europe/Moscow')))
     status = db.Column(db.String(20), default='in_repair')
     tag = db.Column(db.String(20), default='in_work')
 
-    def moscow_time(self, dt):
-        return dt.replace(tzinfo=pytz.utc).astimezone(pytz.timezone('Europe/Moscow'))
-
     TAG_CHOICES = {
+        'in_work': 'В работе',
+        'waiting': 'В ожидании',
+        'ozch': 'ОЗЧ',
+        'no_request': 'Без заявки',
+        "to": "ТО"
+        }
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        remember = request.form.get('remember') == 'on'
+
+        user = User.query.filter_by(username=username).first()
+
+        if user and user.check_password(password):
+            login_user(user, remember=remember)
+            return redirect(url_for('index'))
+        flash('Неверное имя пользователя или пароль')
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('index'))
+
+def moscow_time(self, dt):
+    return dt.replace(tzinfo=pytz.utc).astimezone(pytz.timezone('Europe/Moscow'))
+
+TAG_CHOICES = {
         'in_work': 'В работе',
         'waiting': 'В ожидании',
         'ozch': 'ОЗЧ',
@@ -248,7 +302,7 @@ def index():
 
 @app.route('/about')
 def about():
-    #пока по дате завершения "completed_at"
+    #показ по дате завершения "completed_at"
     tasks = Task.query.filter_by(status='completed').order_by(Task.completed_at.desc()).all()
     return render_template('about.html', tasks=tasks)
 
@@ -871,6 +925,11 @@ def print_task(task_id):
 
 if __name__ == '__main__':
     with app.app_context():
-        db.create_all()  # Создаст таблицу если ее нет
-
+        db.create_all()
+        # Создаем тестового пользователя если его нет
+        if not User.query.filter_by(username='admin').first():
+            admin = User(username='admin')
+            admin.set_password('admin')  # Используйте сложный пароль!
+            db.session.add(admin)
+            db.session.commit()
     app.run(debug=True)
