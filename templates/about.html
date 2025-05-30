@@ -3,6 +3,7 @@
 {% block title %}Готовые задачи{% endblock %}
 
 {% block body %}
+        {% if current_user.is_authenticated %}
 <div class="mt-4">
 <h5>Закрытые заявки</h5>
     <div class="list-group mt-3">
@@ -29,6 +30,7 @@
         {% endfor %}
     </div>
 </div>
+    {% endif %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const searchInput = document.querySelector('.form-control-dark');

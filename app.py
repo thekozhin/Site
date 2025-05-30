@@ -2,44 +2,81 @@ import io
 import os
 from datetime import datetime, timedelta
 
+
 import pytz
+from apscheduler.schedulers.background import BackgroundScheduler
 from docxtpl import DocxTemplate
-from flask import Flask
-from flask import jsonify
-from flask import send_file, make_response
-from flask_login import UserMixin, LoginManager, login_user, logout_user, login_required
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import and_
-from werkzeug.security import generate_password_hash, check_password_hash
+import sqlite3
+from flask import Flask, request, render_template, redirect, url_for, flash, jsonify, send_file, make_response
+from flask import Flask, render_template, redirect, url_for, request, flash
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from werkzeug.security import check_password_hash
+
+
 
 app = Flask(__name__)
-app.secret_key = 'klp0210'  # Важно добавить секретный ключ
-
 # Указываем полный путь к базе данных
 db_path = os.path.join(os.path.dirname(__file__), 'list.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'connect_args': {'check_same_thread': False}}
 db = SQLAlchemy(app)
-
-# Инициализация Flask-Login (перенесено на уровень приложения)
+app.secret_key = os.urandom(24)  # Необходим для работы с сессиями
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
+class User(UserMixin):
+    def init(self, username):
+        self.id = username
+
+
+
+def get_user(username):
+    conn = sqlite3.connect('list.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE username = ?", (username,))
+    user = c.fetchone()
+    conn.close()
+    return user
+
+
+@app.route('/login', methods=['POST'])
+def login():
+    username = request.form.get('username')
+    password = request.form.get('password')
+
+    user = User.query.filter_by(username=username).first()
+    if user is None or user.password != password:
+        flash('Неверное имя пользователя или пароль', 'login_error')
+        return render_template('header.html')  # Отображаем только шапку
+
+    login_user(user)
+    return redirect(url_for('index'))
+
+
+#
+# @app.route('/protected')
+# @login_required
+# def protected():
+#     return f'Привет, {current_user.id}! Это защищенная страница.'
+
+
+# @app.route('/logout')
+# @login_required
+# def logout():
+#     logout_user()
+#     return redirect(url_for('login'))
+
 class User(UserMixin, db.Model):
-    __tablename__ = 'users'
+    __tablename__ = 'users'  # Make sure this is plural if you want it to match 'users'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(64), unique=True, nullable=False)
-    password_hash = db.Column(db.String(128), nullable=False)
-    full_name = db.Column(db.String(100))  # Новое поле для ФИО
-    remember_me = db.Column(db.Boolean, default=False)
+    password = db.Column(db.String(128), nullable=False)
+    full_name = db.Column(db.String(100))
 
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -64,27 +101,6 @@ class Task(db.Model):
         "to": "ТО"
         }
 
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        remember = request.form.get('remember') == 'on'
-
-        user = User.query.filter_by(username=username).first()
-
-        if user and user.check_password(password):
-            login_user(user, remember=remember)
-            return redirect(url_for('index'))
-        flash('Неверное имя пользователя или пароль')
-    return render_template('login.html')
-
-@app.route('/logout')
-@login_required
-def logout():
-    logout_user()
-    return redirect(url_for('index'))
 
 def moscow_time(self, dt):
     return dt.replace(tzinfo=pytz.utc).astimezone(pytz.timezone('Europe/Moscow'))
@@ -271,7 +287,6 @@ def update_tag(task_id):
 @app.route('/')
 def index():
     tasks = Task.query.filter_by(status='in_repair').order_by(Task.created_at.desc()).all()
-
     # Получаем размеры парков
     fleet_size_2 = FleetSize.query.filter_by(location="216644").first().count if FleetSize.query.filter_by(location="216644").first() else 0
     fleet_size_6 = FleetSize.query.filter_by(location="222150").first().count if FleetSize.query.filter_by(location="222150").first() else 0
@@ -926,10 +941,4 @@ def print_task(task_id):
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-        # Создаем тестового пользователя если его нет
-        if not User.query.filter_by(username='admin').first():
-            admin = User(username='admin')
-            admin.set_password('admin')  # Используйте сложный пароль!
-            db.session.add(admin)
-            db.session.commit()
-    app.run(debug=True)
+        db.session.commit()
