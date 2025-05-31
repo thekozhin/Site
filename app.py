@@ -51,24 +51,10 @@ def login():
     user = User.query.filter_by(username=username).first()
     if user is None or user.password != password:
         flash('Неверное имя пользователя или пароль', 'login_error')
-        return render_template('header.html')  # Отображаем только шапку
+        return redirect(url_for('index')) # Отображаем только шапку
 
     login_user(user)
     return redirect(url_for('index'))
-
-
-#
-# @app.route('/protected')
-# @login_required
-# def protected():
-#     return f'Привет, {current_user.id}! Это защищенная страница.'
-
-
-# @app.route('/logout')
-# @login_required
-# def logout():
-#     logout_user()
-#     return redirect(url_for('login'))
 
 class User(UserMixin, db.Model):
     __tablename__ = 'users'  # Make sure this is plural if you want it to match 'users'
@@ -81,6 +67,11 @@ class User(UserMixin, db.Model):
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+@app.route('/logout')
+def logout():
+    logout_user()
+    return redirect(url_for('index'))
 
 class Task(db.Model):
     __tablename__ = 'task'
