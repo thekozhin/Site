@@ -96,14 +96,6 @@ class Task(db.Model):
 def moscow_time(self, dt):
     return dt.replace(tzinfo=pytz.utc).astimezone(pytz.timezone('Europe/Moscow'))
 
-TAG_CHOICES = {
-        'in_work': 'В работе',
-        'waiting': 'В ожидании',
-        'ozch': 'ОЗЧ',
-        'no_request': 'Без заявки',
-        "to": "ТО"
-    }
-
 # Создаем словарь для перевода месяцев
 MONTH_NAMES = {
     1: "января",
@@ -886,6 +878,7 @@ def print_task(task_id):
         "time_end": task.completed_at.strftime('%H:%M'),
         'completed_at': task.completed_at.strftime('%d.%m.%Y %H:%M') if task.completed_at else '',
         'status': task.status,
+        'master': current_user.full_name,
         'description_1': description_lines[0] if len(description_lines) > 0 else '',
         'description_2': description_lines[1] if len(description_lines) > 1 else '',
         'description_3': description_lines[2] if len(description_lines) > 2 else '',
