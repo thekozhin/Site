@@ -3,6 +3,7 @@
 {% block title %}Электробусы{% endblock %}
 
 {% block body %}
+    {% if current_user.is_authenticated %}
 <div class="container mt-4">
     <h2>Список электробусов</h2>
     <div class="table-responsive">
@@ -45,7 +46,7 @@
         <i class="bi bi-plus-lg"></i> Добавить ТС
     </a>
 </div>
-
+   {% endif %}
 <style>
     tr:has(td:empty:not(:last-child)) {
         display: none;

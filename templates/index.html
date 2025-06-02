@@ -3,6 +3,7 @@
 {% block title %}В ремонте{% endblock %}
 
 {% block body %}
+    {% if current_user.is_authenticated %}
 <div class="mt-4">
     <h6> Открытые заявки | 2 - {{ ktg_2|round(2) }}% | 6 - {{ ktg_6|round(2) }}% | 8 - {{ ktg_8|round(2) }}%</h6>
 
@@ -102,7 +103,7 @@
         {% endfor %}
     </div>
 </div>
-
+    {% endif %}
 <script>
 
 document.getElementById('addTaskForm').addEventListener('submit', function(e) {
@@ -147,4 +148,5 @@ document.getElementById('addTaskForm').addEventListener('submit', function(e) {
     });
 });
 </script>
+
 {% endblock %}
