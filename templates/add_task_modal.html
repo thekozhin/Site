@@ -1,0 +1,39 @@
+<!-- templates/add_task_modal.html -->
+<div class="modal fade" id="addTaskModal" tabindex="-1" aria-labelledby="addTaskModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('add_task') }}">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="addTaskModalLabel">Добавить задачу</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Flash сообщения для модального окна добавления задачи -->
+                    {% with messages = get_flashed_messages(category_filter=["add_task_error"]) %}
+                        {% if messages %}
+                            <div class="alert alert-danger alert-dismissible fade show mb-3" role="alert">
+                                {% for message in messages %}
+                                    {{ message }}
+                                {% endfor %}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        {% endif %}
+                    {% endwith %}
+
+                    <div class="mb-3">
+                        <label for="board_number" class="form-label">Номер борта</label>
+                        <input type="text" class="form-control" id="board_number" name="board_number" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Описание</label>
+                        <textarea class="form-control" id="description" name="description" rows="3" required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                    <button type="submit" class="btn btn-primary">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
