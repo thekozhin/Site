@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+
+{% block title %}Кузовной ремонт{% endblock %}
+
+{% block body %}
+<style>
+    .body-repair-table-scroll {
+        max-height: 70vh;
+        overflow: auto;
+    }
+    .body-repair-table-scroll thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background-color: var(--bs-tertiary-bg, #f8f9fa);
+        box-shadow: inset 0 -1px var(--bs-border-color, #dee2e6);
+    }
+</style>
+<div class="container-fluid py-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+        <div>
+            <h1 class="h3 mb-1">Кузовной ремонт</h1>
+{#            <div class="text-muted">Парк: {{ selected_park or 'не выбран' }}</div>#}
+        </div>
+        {% if selected_park %}
+            <div class="d-flex gap-2 align-items-center">
+                {% if selected_park in ['14 парк', '1 парк', 'Красная Пахра'] %}
+                    <form method="POST" action="{{ url_for('sync_body_repair_now') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="tab" value="{{ active_tab }}">
+                        <button class="btn btn-outline-primary" type="submit" title="Синхронизировать с Google Таблицами" aria-label="Синхронизировать с Google Таблицами">
+                            <i class="bi bi-arrow-repeat"></i>
+                        </button>
+                    </form>
+                {% endif %}
+                <a class="btn btn-outline-success" href="{{ url_for('export_body_repair') }}">
+                    <i class="bi bi-file-earmark-excel"></i> Выгрузить
+                </a>
+                <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#addBodyRepairForm"
+                        aria-expanded="false" aria-controls="addBodyRepairForm">
+                    <i class="bi bi-plus-lg"></i> Добавить
+                </button>
+            </div>
+        {% endif %}
+    </div>
+
+    <ul class="nav nav-tabs mb-3">
+        <li class="nav-item">
+            <a class="nav-link {{ 'active' if active_tab == 'in_work' else '' }}"
+               href="{{ url_for('body_repair', tab='in_work') }}">В работе</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {{ 'active' if active_tab == 'ready' else '' }}"
+               href="{{ url_for('body_repair', tab='ready') }}">Готовые</a>
+        </li>
+        <li class="nav-item d-flex align-items-center ms-3 text-muted">
+            <span>В ремонте: <strong class="text-body" id="bodyRepairCount">{{ in_repair_count }}</strong></span>
+        </li>
+    </ul>
+
+    {% if selected_park %}
+        <div class="collapse mb-4" id="addBodyRepairForm">
+            <form class="card card-body" method="POST" action="{{ url_for('add_body_repair') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="row g-3">
+                    <div class="col-12 col-md-2">
+                        <label class="form-label" for="bort">Бортовой</label>
+                        <input class="form-control" id="bort" name="bort" maxlength="20" required>
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <label class="form-label" for="work_order">Заказ-наряд</label>
+                        <input class="form-control" id="work_order" name="work_order" maxlength="50">
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label" for="reason">Причина обращения</label>
+                        <input class="form-control" id="reason" name="reason" required>
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label" for="repair_type">Вид кузовного ремонта</label>
+                        <select class="form-select" id="repair_type" name="repair_type" required>
+                            {% for value, label in repair_types.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label" for="started_at">Дата начала</label>
+                        <input class="form-control" type="date" id="started_at" name="started_at" value="{{ today }}" required>
+                    </div>
+                    <div class="col-12 col-md-7">
+                        <label class="form-label" for="note">Примечание</label>
+                        <input class="form-control" id="note" name="note">
+                    </div>
+                    <div class="col-12 col-md-2 d-flex align-items-end">
+                        <button class="btn btn-success w-100" type="submit">Сохранить</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    {% endif %}
+
+    <div class="table-responsive body-repair-table-scroll" tabindex="0" aria-label="Заявки кузовного ремонта">
+        <table class="table table-striped table-hover align-middle">
+            <thead class="table-light">
+            <tr>
+                <th class="text-center" scope="col" title="Согласовано">СГЛ</th>
+                <th>Бортовой</th>
+                <th>Заказ-наряд</th>
+                <th>Причина обращения</th>
+                <th>Статус</th>
+                <th>Дата начала</th>
+                <th>Примечание</th>
+                <th>Вид ремонта</th>
+                <th>Ссылка</th>
+                {% if active_tab == 'in_work' %}<th>Действие</th>{% else %}<th>Дата завершения</th>{% endif %}
+            </tr>
+            </thead>
+            <tbody>
+            {% for repair in repairs %}
+                <tr>
+                    <td class="text-center">
+                        {% if active_tab == 'in_work' %}
+                            <form method="POST" action="{{ url_for('update_body_repair_approval', repair_id=repair.id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="tab" value="{{ active_tab }}">
+                                <input type="hidden" name="scroll_y" value="0">
+                                <input class="form-check-input" type="checkbox" name="is_approved" value="1"
+                                       {{ 'checked' if repair.is_approved else '' }}
+                                       aria-label="Заявка по борту {{ repair.bort }} согласована"
+                                       title="Заявка согласована"
+                                       onchange="this.form.elements.scroll_y.value=window.scrollY; this.form.requestSubmit()">
+                            </form>
+                        {% else %}
+                            <input class="form-check-input" type="checkbox" disabled
+                                   {{ 'checked' if repair.is_approved else '' }}
+                                   aria-label="Заявка по борту {{ repair.bort }} согласована"
+                                   title="{{ 'Заявка согласована' if repair.is_approved else 'Согласование не отмечено' }}">
+                        {% endif %}
+                    </td>
+                    <td class="fw-semibold">{{ repair.bort }}</td>
+                    <td>{{ repair.work_order or '—' }}</td>
+                    <td class="text-break">{{ repair.reason or '—' }}</td>
+                    <td>
+                        {% if active_tab == 'in_work' %}
+                            <form method="POST" action="{{ url_for('update_body_repair_status', repair_id=repair.id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="tab" value="{{ active_tab }}">
+                                <input type="hidden" name="scroll_y" value="0">
+                                <select class="form-select form-select-sm" name="repair_status" onchange="this.form.elements.scroll_y.value=window.scrollY; this.form.requestSubmit()" aria-label="Статус борта {{ repair.bort }}">
+                                    <option value="" {{ 'selected' if not repair.repair_status else '' }}>—</option>
+                                    {% for value, label in statuses.items() %}
+                                        <option value="{{ value }}" {{ 'selected' if repair.repair_status == value else '' }}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </form>
+                        {% else %}{{ statuses.get(repair.repair_status, '—') }}{% endif %}
+                    </td>
+                    <td>{{ repair.started_at.strftime('%d.%m.%Y') if repair.started_at else '—' }}</td>
+                    <td class="text-break">{{ repair.note or '—' }}</td>
+                    <td>{{ repair_types.get(repair.repair_type, '—') }}</td>
+                    <td>{% if repair.source_link %}<a href="{{ repair.source_link }}" target="_blank" rel="noopener noreferrer">Открыть</a>{% else %}—{% endif %}</td>
+                    <td>
+                        {% if active_tab == 'in_work' %}
+                            <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary" title="Редактировать"
+                                    data-bs-toggle="modal" data-bs-target="#editBodyRepairModal"
+                                    data-id="{{ repair.id }}" data-bort="{{ repair.bort }}"
+                                    data-work-order="{{ repair.work_order or '' }}" data-reason="{{ repair.reason or '' }}"
+                                    data-status="{{ repair.repair_status }}"
+                                    data-started-at="{{ repair.started_at.isoformat() if repair.started_at else '' }}"
+                                    data-note="{{ repair.note or '' }}" data-repair-type="{{ repair.repair_type }}">
+                                <i class="bi bi-pencil-square"></i>
+                            </button>
+                            <form method="POST" action="{{ url_for('complete_body_repair', repair_id=repair.id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button class="btn btn-sm btn-success" type="submit">Завершить</button>
+                            </form>
+                            </div>
+                        {% else %}
+                            <div class="d-flex align-items-center justify-content-between gap-3">
+                                <span class="text-nowrap">{{ repair.completed_at.strftime('%d.%m.%Y %H:%M') if repair.completed_at else '—' }}</span>
+                                <form method="POST" action="{{ url_for('reopen_body_repair', repair_id=repair.id) }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button class="btn btn-sm btn-outline-primary rounded-pill px-2 py-1 d-inline-flex align-items-center gap-1 text-nowrap"
+                                            type="submit" title="Вернуть в работу"
+                                            aria-label="Вернуть борт {{ repair.bort }} в работу">
+                                        <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
+{#                                        <span>Возврат</span>#}
+                                    </button>
+                                </form>
+                            </div>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% else %}
+                <tr><td colspan="10" class="text-center text-muted py-4">
+                    {{ 'Нет готовых кузовных ремонтов.' if active_tab == 'ready' else 'В выбранном парке пока нет бортов в кузовном ремонте.' }}
+                </td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if active_tab == 'in_work' %}
+<div class="modal fade" id="editBodyRepairModal" tabindex="-1" aria-labelledby="editBodyRepairModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <form class="modal-content" id="editBodyRepairForm" method="POST" onsubmit="this.elements.scroll_y.value=window.scrollY">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="tab" value="{{ active_tab }}">
+            <input type="hidden" name="scroll_y" value="0">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="editBodyRepairModalLabel">Редактировать кузовной ремонт</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-3"><label class="form-label" for="edit_bort">Бортовой</label><input class="form-control" id="edit_bort" name="bort" required></div>
+                    <div class="col-md-4"><label class="form-label" for="edit_work_order">Номер заказ-наряда</label><input class="form-control" id="edit_work_order" name="work_order"></div>
+                    <div class="col-md-5"><label class="form-label" for="edit_repair_type">Вид кузовного ремонта</label><select class="form-select" id="edit_repair_type" name="repair_type"><option value="">—</option>{% for value, label in repair_types.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
+                    <div class="col-md-6"><label class="form-label" for="edit_reason">Причина обращения</label><input class="form-control" id="edit_reason" name="reason"></div>
+                    <div class="col-md-6"><label class="form-label" for="edit_repair_status">Статус</label><select class="form-select" id="edit_repair_status" name="repair_status"><option value="">—</option>{% for value, label in statuses.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
+                    <div class="col-md-4"><label class="form-label" for="edit_started_at">Дата начала</label><input class="form-control" type="date" id="edit_started_at" name="started_at"></div>
+                    <div class="col-md-8"><label class="form-label" for="edit_note">Примечание</label><input class="form-control" id="edit_note" name="note"></div>
+                </div>
+            </div>
+            <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button><button type="submit" class="btn btn-primary">Сохранить изменения</button></div>
+        </form>
+    </div>
+</div>
+<script>
+    const bodyRepairEditUrl = {{ url_for('update_body_repair', repair_id=0)|tojson }};
+    document.getElementById('editBodyRepairModal').addEventListener('show.bs.modal', function (event) {
+        const button = event.relatedTarget;
+        const data = button.dataset;
+        const form = document.getElementById('editBodyRepairForm');
+        form.action = bodyRepairEditUrl.replace('/0/edit', '/' + data.id + '/edit');
+        form.elements.bort.value = data.bort;
+        form.elements.work_order.value = data.workOrder;
+        form.elements.reason.value = data.reason;
+        form.elements.repair_status.value = data.status;
+        form.elements.started_at.value = data.startedAt;
+        form.elements.note.value = data.note;
+        form.elements.repair_type.value = data.repairType;
+    });
+</script>
+{% endif %}
+<script>
+    const bodyRepairScrollY = {{ scroll_y|tojson }};
+    if (bodyRepairScrollY > 0) {
+        requestAnimationFrame(() => window.scrollTo(0, bodyRepairScrollY));
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,35 @@
+# Версии зафиксированы под боевой сервер (Python 3.14, Flask 3 / SQLAlchemy 2).
+# Менять осторожно: должно совпадать с рабочим окружением flaskenv на проде.
+
+# Веб-фреймворк и расширения
+Flask==3.1.3
+Werkzeug==3.1.8
+Flask-Login==0.6.3
+Flask-SQLAlchemy==3.1.1
+SQLAlchemy==2.0.51
+Flask-WTF==1.2.2
+Flask-Limiter==3.8.0
+
+# База данных (прод - MySQL)
+PyMySQL==1.2.0
+
+# Планировщик фоновых задач
+APScheduler==3.11.3
+
+# Документы и таблицы
+docxtpl==0.20.2
+openpyxl==3.1.5
+
+# Google Sheets
+gspread==6.2.1
+oauth2client==4.1.3
+
+# Утилиты
+python-dotenv==1.2.2
+pytz==2026.2
+requests==2.34.2
+holidays==0.101
+user-agents==2.2.0
+
+# Шифрование личных учётных данных InControl
+cryptography==50.0.2

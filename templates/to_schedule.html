@@ -1,0 +1,700 @@
+{% extends "base.html" %}
+
+{% block title %}График ТО{% endblock %}
+
+{% block body %}
+    <!-- Подключаем Font Awesome для иконок -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    {% if current_user.is_authenticated %}
+        {% if current_user.company in ['Сетранс', 'МГТ'] %}
+            {% if current_user.username in allowed_users %}
+                <div class="container mt-4">
+                <h2>График ТО</h2>
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <form method="POST" class="form-inline" id="add-to-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="add">
+                            <div class="form-row">
+                                <div class="form-group me-2">
+                                    <label for="date" class="me-2">Дата</label>
+                                    <input type="date" class="form-control form-control-sm" id="date" name="date"
+                                           value="{{ selected_date | default('', true) }}" required>
+                                </div>
+                                <div class="form-group me-2">
+                                    <label for="bort" class="me-2">Борт</label>
+                                    <input type="text" class="form-control form-control-sm" id="bort" name="bort"
+                                           required>
+                                </div>
+                                <div class="form-group me-2">
+                                    <label for="to_type" class="me-2">Тип ТО</label>
+                                    <select class="form-control form-control-sm custom-select" id="to_type"
+                                            name="to_type" required>
+                                        <option value="ОТМ">ОТМ</option>
+                                        <option value="СО">СО</option>
+                                        <option value="СО ночь">СО ночь</option>
+                                        <option value="ТО-1000">ТО-1000</option>
+                                        <option value="ТО-2500">ТО-2500</option>
+
+                                        {% set options = [] %}
+
+                                        {# ТО1 каждые 15000, кроме тех, что делятся на 30000 #}
+                                        {% for mileage in range(15000, 900001, 15000) %}
+                                            {% if mileage % 30000 != 0 %}
+                                                {% set _ = options.append(('ТО1 ' ~ mileage, mileage)) %}
+                                            {% endif %}
+                                        {% endfor %}
+
+                                        {# ТО2 каждые 30000 #}
+                                        {% for mileage in range(30000, 900001, 30000) %}
+                                            {% set _ = options.append(('ТО2 ' ~ mileage, mileage)) %}
+                                        {% endfor %}
+
+                                        {# Сортируем список по пробегу и выводим #}
+                                        {% for to_type, mileage in options|sort(attribute=1) %}
+                                            <option value="{{ to_type }}">{{ to_type }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group me-2">
+                                    <label for="is_so" class="me-2">СО</label>
+                                    <input type="checkbox" id="is_so" name="is_so" class="me-1">
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-sm">Добавить</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+
+                <form method="POST"
+                      action="{{ url_for('upload_to_schedule_excel') }}"
+                      enctype="multipart/form-data"
+                      class="d-flex align-items-center gap-2 mb-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="file"
+                           name="excel_file"
+                           accept=".xlsx"
+                           class="form-control form-control-sm"
+                           required>
+
+                    <input type="number"
+                           name="year"
+                           value="{{ selected_year }}"
+                           class="form-control form-control-sm"
+                           style="width: 90px;">
+
+                    <button type="submit" class="btn btn-success btn-sm">
+                        Загрузить Excel
+                    </button>
+                </form>
+            {% endif %}
+
+        <!-- Календарь -->
+        <div class="calendar-container">
+            <!-- Форма выбора месяца/года -->
+            <form method="GET" action="{{ url_for('to_schedule') }}" class="d-flex align-items-center gap-3 mb-3">
+                <h3 class="mb-0">{{ month_year }}</h3>
+                <label for="month" class="ms-3 me-2 mb-0">Месяц:</label>
+                <select name="month" id="month" class="form-control form-control-sm w-auto">
+                    {% for m in range(1, 13) %}
+                        <option value="{{ m }}" {% if m == selected_month %}selected{% endif %}>
+                            {{ RUSSIAN_MONTHS[m] }}
+                        </option>
+                    {% endfor %}
+                </select>
+                <label for="year" class="ms-3 me-2 mb-0">Год:</label>
+                <select name="year" id="year" class="form-control form-control-sm w-auto">
+                    {% for y in range(current_year - 2, current_year + 3) %}
+                        <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>{{ y }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-primary btn-sm ms-3">Показать</button>
+                <!-- Кнопка экспорта в Excel, сдвинутая вправо -->
+                <a href="{{ url_for('to_schedule_export', month=selected_month, year=selected_year) }}"
+                   class="btn btn-success btn-sm ms-auto">
+                    <i class="fas fa-file-excel"></i> Экспорт в Excel
+                </a>
+            </form>
+
+
+            <!-- Календарь -->
+            <div class="calendar">
+                <div class="calendar-header">
+                    <span>Пн</span>
+                    <span>Вт</span>
+                    <span>Ср</span>
+                    <span>Чт</span>
+                    <span>Пт</span>
+                    <span>Сб</span>
+                    <span>Вс</span>
+                </div>
+                <div class="calendar-body">
+                    {% for week in calendar_data %}
+                        <div class="calendar-week">
+                            {% for day in week %}
+                                <div class="calendar-day
+                            {{ 'has-tasks' if day.entries else '' }}
+                            {% if day.date == today %}today{% endif %}
+                            {% if day.has_rejected_entries %}has-rejected{% endif %}
+                            {% if day.has_completed_entries %}has-completed{% endif %}">
+                                    {% if day.date %}
+                                        <div class="day-number">{{ day.date.day }}</div>
+                                        {% for entry in day.entries %}
+                                            <div class="task
+                                                    {% if entry.has_reject %}
+                                                 task-rejected
+                                                    {% elif entry.has_completed %}
+                                                 task-completed
+                                                    {% elif entry.has_recent_to %}
+                                                 task-warning
+                                                    {% endif %}">
+                                                <form method="POST" class="task-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                    <input type="hidden" name="action" value="delete">
+                                                    <input type="hidden" name="id" value="{{ entry.id }}">
+                                                    <!-- Добавляем текущие месяц и год для сохранения вида после удаления -->
+                                                    <input type="hidden" name="month" value="{{ selected_month }}">
+                                                    <input type="hidden" name="year" value="{{ selected_year }}">
+                                                    <div class="task-row">
+                                                        <span class="task-data">
+                                                            {% if entry.has_reject %}
+                                                                <i class="fas fa-exclamation-triangle text-danger me-1"
+                                                                   title="Отклонено"></i>
+                                                            {% elif entry.has_completed %}
+                                                                <i class="fas fa-check-circle text-success me-1"
+                                                                   title="Выполнено"></i>
+                                                            {% endif %}
+
+                                                            {% if entry.has_recent_to %}
+                                                                <i class="fas fa-exclamation-circle text-warning me-1"
+                                                                   title="{{ entry.recent_to_warning }}"></i>
+                                                            {% endif %}
+                                                            <button type="button"
+                                                                    class="task-bort-link"
+                                                                    data-id="{{ entry.id }}"
+                                                                    data-bort="{{ entry.bort }}"
+                                                                    data-to-type="{{ entry.to_type }}"
+                                                                    data-passed="{{ 'true' if entry.has_completed else 'false' }}"
+                                                                    data-failed="{{ 'true' if entry.has_reject else 'false' }}">
+    <strong>{{ entry.bort }}</strong>
+</button>
+<span>{{ entry.to_type }}</span>
+                                                        </span>
+                                                        {% if current_user.username in allowed_users %}
+                                                            <button type="submit"
+                                                                    formaction="{{ url_for('to_schedule') }}"
+                                                                    formmethod="POST"
+                                                                    class="btn btn-icon btn-danger"
+                                                                    title="Удалить"
+                                                                    onclick="return confirm('Удалить?');">
+                                                                <i class="fas fa-times"></i>
+                                                            </button>
+                                                        {% endif %}
+                                                    </div>
+                                                </form>
+
+                                            </div>
+                                        {% endfor %}
+                                    {% else %}
+                                        <div class="day-number empty"></div>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        </div>
+
+            <div id="edit-to-modal" class="to-modal">
+                <div class="to-modal-content">
+                    <div class="to-modal-header">
+                        <h5>Редактирование ТО</h5>
+                        <button type="button" class="to-modal-close" id="close-edit-to-modal">&times;</button>
+                    </div>
+
+                    <form id="edit-to-form">
+                        <input type="hidden" name="action" value="edit">
+                        <input type="hidden" name="id" id="edit-entry-id">
+
+                        <div class="form-group mb-2">
+                            <label>Борт</label>
+                            <input type="text" class="form-control form-control-sm" id="edit-bort" readonly>
+                        </div>
+
+                        <div class="form-group mb-2">
+                            <label for="edit-to-type">Объем ТО</label>
+                            <input type="text"
+                                   class="form-control form-control-sm"
+                                   name="to_type"
+                                   id="edit-to-type"
+                                   placeholder="ТО1 285000"
+                                   required>
+                        </div>
+
+                        <div class="form-group mb-3">
+                            <label class="me-3">
+                                <input type="checkbox" id="edit-passed">
+                                Прошло ТО
+                            </label>
+
+                            <label>
+                                <input type="checkbox" id="edit-failed">
+                                Не прошло ТО
+                            </label>
+                        </div>
+
+                        <div class="to-modal-actions">
+                            <button type="button" class="btn btn-secondary btn-sm" id="cancel-edit-to-modal">
+                                Отмена
+                            </button>
+                            <button type="submit" class="btn btn-primary btn-sm">
+                                Сохранить
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <style>
+                body {
+                    font-family: 'Jost', sans-serif;
+                    font-size: 15px;
+                    -webkit-font-smoothing: antialiased;
+                    -moz-osx-font-smoothing: grayscale;
+                }
+
+                .calendar {
+                    display: grid;
+                    border: 1px solid #ddd;
+                    font-family: inherit;
+                }
+
+                .calendar-header {
+                    display: grid;
+                    grid-template-columns: repeat(7, 1fr);
+                    text-align: center;
+                    background: #f8f9fa;
+                    font-weight: bold;
+                    padding: 10px 0;
+                }
+
+                .calendar-week {
+                    display: grid;
+                    grid-template-columns: repeat(7, 1fr);
+                }
+
+                .calendar-day {
+                    border: 1px solid #ddd;
+                    min-height: 120px;
+                    padding: 5px;
+                    position: relative;
+                }
+
+                .calendar-day.has-tasks {
+                    background: #ffffff;
+                }
+
+                .calendar-day.today {
+                    background-color: #d4edda; /* бледно-зелёный */
+                }
+
+                .calendar-day.has-rejected {
+                    background-color: #fff5f5; /* очень бледно-красный фон дня */
+                }
+
+                .calendar-day.has-completed {
+                    background-color: #f5fff5; /* очень бледно-зелёный фон дня */
+                }
+
+                .day-number {
+                    font-weight: bold;
+                    margin-bottom: 5px;
+                }
+
+                .day-number.empty {
+                    background: #f0f0f0;
+                }
+
+                .task {
+                    margin-bottom: 3px;
+                    padding: 3px;
+                    background: #fff;
+                    border: 1px solid #ccc;
+                    border-radius: 4px;
+                }
+
+                .task.task-rejected {
+                    background-color: #ffcccc !important;
+                    border: 1px solid #ff0000 !important;
+                    color: #cc0000;
+                }
+
+                .task.task-completed {
+                    background-color: #ccffcc !important;
+                    border: 1px solid #00aa00 !important;
+                    color: #006600;
+                }
+
+                .task.task-warning {
+                    background-color: #fff3cd !important;
+                    border: 1px solid #ffc107 !important;
+                    color: #664d03;
+                }
+
+
+                .task-form {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 3px;
+                }
+
+                .task-row {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 3px;
+                }
+
+                .task-data {
+                    font-size: 0.8em;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    flex-grow: 1;
+                }
+
+                .btn-icon {
+                    background: none;
+                    border: none;
+                    padding: 1px 3px;
+                    cursor: pointer;
+                    font-size: 0.7em;
+                    color: #dc3545;
+                    flex-shrink: 0;
+                }
+
+                .btn-icon:hover {
+                    opacity: 0.7;
+                }
+
+                .form-inline {
+                    display: flex;
+                    align-items: center;
+                }
+
+                .form-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+
+                .form-group {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+
+                .form-group label {
+                    margin-bottom: 0;
+                }
+
+                .form-control-sm {
+                    font-size: 0.9em;
+                    padding: 0.2rem 0.4rem;
+                    height: calc(1.5em + 0.5rem + 2px);
+                }
+
+                .form-control {
+                    font-size: 1rem;
+                    padding: 0.375rem 0.75rem;
+                    height: calc(1.5em + 0.75rem + 2px);
+                }
+
+                .btn-sm {
+                    padding: 0.2rem 0.5rem;
+                }
+
+                .custom-select {
+                    position: relative;
+                    appearance: none;
+                    -webkit-appearance: none;
+                    -moz-appearance: none;
+                    background: #fff;
+                    padding-right: 25px; /* Место для стрелки */
+                }
+
+                .custom-select::after {
+                    content: '▼';
+                    position: absolute;
+                    right: 10px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    pointer-events: none;
+                    font-size: 0.8em;
+                    color: #333;
+                }
+
+                /* Информация о цветах */
+                .color-legend {
+                    margin-top: 15px;
+                    padding: 10px;
+                    background: #f8f9fa;
+                    border-radius: 5px;
+                    font-size: 0.85em;
+                }
+
+                .color-legend-item {
+                    display: inline-flex;
+                    align-items: center;
+                    margin-right: 15px;
+                }
+
+                .color-box {
+                    width: 15px;
+                    height: 15px;
+                    margin-right: 5px;
+                    border: 1px solid #ccc;
+                }
+
+                .color-box.today {
+                    background-color: #d4edda;
+                }
+
+                .color-box.rejected {
+                    background-color: #ffcccc;
+                    border-color: #ff0000;
+                }
+
+                .color-box.completed {
+                    background-color: #ccffcc;
+                    border-color: #00aa00;
+                }
+
+                .task-bort-link {
+                    border: none;
+                    background: none;
+                    padding: 0;
+                    color: inherit;
+                    font: inherit;
+                    cursor: pointer;
+                    text-decoration: none;
+                }
+
+                .task-bort-link:hover {
+                    opacity: 0.75;
+                    text-decoration: none;
+                }
+
+                .to-modal {
+                    display: none;
+                    position: fixed;
+                    z-index: 1050;
+                    inset: 0;
+                    background: rgba(0, 0, 0, 0.45);
+                    align-items: center;
+                    justify-content: center;
+                }
+
+                .to-modal.is-open {
+                    display: flex;
+                }
+
+                .to-modal-content {
+                    background: #fff;
+                    width: 420px;
+                    max-width: calc(100% - 30px);
+                    border-radius: 6px;
+                    padding: 15px;
+                    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+                }
+
+                .to-modal-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    margin-bottom: 12px;
+                }
+
+                .to-modal-header h5 {
+                    margin: 0;
+                }
+
+                .to-modal-close {
+                    border: none;
+                    background: none;
+                    font-size: 24px;
+                    line-height: 1;
+                    cursor: pointer;
+                }
+
+                .to-modal-actions {
+                    display: flex;
+                    justify-content: flex-end;
+                    gap: 8px;
+                }
+            </style>
+
+            <div class="container mt-3">
+                <div class="color-legend">
+                    <strong>Обозначения:</strong>
+                    <span class="color-legend-item">
+                <span class="color-box completed"></span> ТО выполнено
+            </span>
+                    <span class="color-legend-item">
+                <span class="color-box rejected"></span> ТО отклонено
+            </span>
+                </div>
+            </div>
+
+            <script>
+                document.addEventListener('DOMContentLoaded', function () {
+                    const form = document.getElementById('add-to-form');
+                    const editModal = document.getElementById('edit-to-modal');
+                    const editForm = document.getElementById('edit-to-form');
+                    const editEntryId = document.getElementById('edit-entry-id');
+                    const editBort = document.getElementById('edit-bort');
+                    const editToType = document.getElementById('edit-to-type');
+                    const editPassed = document.getElementById('edit-passed');
+                    const editFailed = document.getElementById('edit-failed');
+
+                    document.querySelectorAll('.task-bort-link').forEach(function (button) {
+                        button.addEventListener('click', function () {
+                            editEntryId.value = button.dataset.id;
+                            editBort.value = button.dataset.bort;
+                            editToType.value = button.dataset.toType;
+                            editPassed.checked = button.dataset.passed === 'true';
+                            editFailed.checked = button.dataset.failed === 'true';
+
+                            editModal.classList.add('is-open');
+                        });
+                    });
+
+                    function closeEditModal() {
+                        editModal.classList.remove('is-open');
+                    }
+
+                    document.getElementById('close-edit-to-modal').addEventListener('click', closeEditModal);
+                    document.getElementById('cancel-edit-to-modal').addEventListener('click', closeEditModal);
+
+                    editModal.addEventListener('click', function (event) {
+                        if (event.target === editModal) {
+                            closeEditModal();
+                        }
+                    });
+
+                    editPassed.addEventListener('change', function () {
+                        if (editPassed.checked) {
+                            editFailed.checked = false;
+                        }
+                    });
+
+                    editFailed.addEventListener('change', function () {
+                        if (editFailed.checked) {
+                            editPassed.checked = false;
+                        }
+                    });
+
+                    editForm.addEventListener('submit', function (event) {
+                        event.preventDefault();
+
+                        const formData = new FormData(editForm);
+                        formData.append('passed', editPassed.checked ? 'true' : 'false');
+                        formData.append('failed', editFailed.checked ? 'true' : 'false');
+
+                        fetch('{{ url_for("to_schedule") }}', {
+                            method: 'POST',
+                            body: formData
+                        })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.success) {
+                                    window.location.reload();
+                                } else {
+                                    alert(data.error || 'Ошибка при сохранении записи');
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error:', error);
+                                alert('Ошибка при сохранении записи');
+                            });
+                    });
+                    form.addEventListener('submit', function (event) {
+                        event.preventDefault();
+                        const formData = new FormData(form);
+
+                        // Сначала проверяем, есть ли у этого борта предыдущая запись с отклонением
+                        fetch('{{ url_for("to_schedule") }}?check_previous=1&bort=' + encodeURIComponent(formData.get('bort')) + '&date=' + encodeURIComponent(formData.get('date')))
+                            .then(response => response.json())
+                            .then(checkData => {
+                                if (checkData.has_rejected) {
+                                    // Если предыдущая запись была отклонена, пропускаем предупреждение и сразу добавляем
+                                    forceAddEntry(formData);
+                                } else {
+                                    // Если предыдущая запись не была отклонена, выполняем обычную проверку дубликатов
+                                    checkDuplicateAndAdd(formData);
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error:', error);
+                                alert('Ошибка при проверке данных');
+                            });
+                    });
+
+                    function checkDuplicateAndAdd(formData) {
+                        fetch('{{ url_for("to_schedule") }}', {
+                            method: 'POST',
+                            body: formData
+                        })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.duplicate) {
+                                    if (confirm('Борт уже есть в графике ТО за последний месяц. Внести запись?')) {
+                                        forceAddEntry(formData);
+                                    }
+                                } else if (data.success) {
+                                    window.location.reload();
+                                } else {
+                                    alert(data.error || 'Ошибка при добавлении записи');
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error:', error);
+                                alert('Ошибка при отправке формы');
+                            });
+                    }
+
+                    function forceAddEntry(formData) {
+                        formData.append('force_add', 'true');
+                        fetch('{{ url_for("to_schedule") }}', {
+                            method: 'POST',
+                            body: formData
+                        })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.success) {
+                                    window.location.reload();
+                                } else {
+                                    alert(data.error || 'Ошибка при добавлении записи');
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error:', error);
+                                alert('Ошибка при отправке формы');
+                            });
+                    }
+                });
+            </script>
+        {% else %}
+            <div class="container mt-4">
+                <div class="alert alert-danger" role="alert">
+                    У вас нет доступа к этой странице.
+                </div>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}

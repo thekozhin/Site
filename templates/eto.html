@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block title %}ЕТО — {{ selected_park or 'Выберите парк' }}{% endblock %}
+
+{% block body %}
+{% if current_user.is_authenticated %}
+<div class="container mt-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">ЕТО — Парк: <strong>{{ selected_park or 'Не выбран' }}</strong></h4>
+        <div>
+            <form method="post" class="d-inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" name="copy_mileage_to_yesterday" value="1"
+                        class="btn btn-warning btn-sm me-2"
+                        onclick="return confirm('Перенести текущий пробег во вчерашний для всех ТС в парке?')">
+                    Перенести пробег
+                </button>
+            </form>
+
+            <a href="{{ url_for('eto_export_xlsx') }}" class="btn btn-primary btn-sm me-2">
+                xlsx в 1С
+            </a>
+
+            <a href="{{ url_for('eto_save_history') }}" class="btn btn-success btn-sm"
+               onclick="return confirm('Сохранить текущие пробеги в историю?')">
+                Сохранить пробеги
+            </a>
+        </div>
+    </div>
+
+    {% if cars %}
+    <div class="d-flex" style="gap: 2rem;">
+        <!-- Левая таблица: текущий пробег -->
+        <div style="flex: 1; min-width: 380px;">
+            <form method="post" id="mileage-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <table class="table table-sm table-bordered table-hover align-middle text-center"
+                       style="table-layout: fixed; width: 100%;">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 60px;">№ борта</th>
+                            <th style="width: 100px;">Пробег (км)</th>
+                            <th style="width: 100px;">За вчера</th>
+                            <th style="width: 80px;">Разница</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for car in cars %}
+                        <tr>
+                            <td><strong>{{ car.bort }}</strong></td>
+                            <td>
+                                <input type="number"
+                                       value="{{ car.mileage or '' }}"
+                                       class="form-control form-control-sm mileage-input text-center"
+                                       data-car-id="{{ car.id }}"
+                                       min="0"
+                                       style="width: 90px; margin: 0 auto;">
+                            </td>
+                            <td id="mileage_yesterday_{{ car.id }}" class="text-muted">
+                                {{ car.mileage_yesterday or '-' }}
+                            </td>
+                            <td id="mileage_diff_{{ car.id }}" class="fw-bold">
+                                {{ car.mileage_diff }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </form>
+        </div>
+
+        <!-- Правая панель: история -->
+        <div style="flex: 1; min-width: 320px;">
+            <h5>История пробегов</h5>
+            <select id="bort-select" class="form-select form-select-sm mb-3">
+                <option value="" selected disabled>— Выберите борт —</option>
+                {% for car in cars %}
+                <option value="{{ car.bort }}">{{ car.bort }}</option>
+                {% endfor %}
+            </select>
+
+            <div id="history-container">
+                <table id="history-table" class="table table-sm table-bordered table-hover text-center"
+                       style="table-layout: fixed; width: 100%; display: none;">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 90px;">Дата</th>
+                            <th style="width: 80px;">Пробег</th>
+                            <th style="width: 80px;">Суточный</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        В выбранном парке нет автомобилей.
+    </div>
+    {% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const inputs = document.querySelectorAll('.mileage-input');
+
+    // Автосохранение при изменении пробега
+    inputs.forEach(input => {
+        let timeout;
+        input.addEventListener('input', function () {
+            clearTimeout(timeout);
+            const carId = this.dataset.carId;
+            const value = this.value.trim();
+
+            // Обновляем разницу сразу
+            updateDiff(carId, value);
+
+            // Сохраняем с задержкой 800мс
+            timeout = setTimeout(() => {
+                if (value === '' || !isNaN(value)) {
+                    saveMileage(carId, value === '' ? null : parseInt(value));
+                }
+            }, 800);
+        });
+    });
+
+    function updateDiff(carId, mileageStr) {
+        const mileage = parseInt(mileageStr, 10);
+        const yesterdayTd = document.getElementById('mileage_yesterday_' + carId);
+        const yesterday = parseInt(yesterdayTd.textContent.replace(/[^0-9]/g, ''), 10) || 0;
+        const diffTd = document.getElementById('mileage_diff_' + carId);
+
+        if (!isNaN(mileage)) {
+            const diff = mileage - yesterday;
+            diffTd.textContent = diff;
+            diffTd.style.color = diff > 0 ? 'green' : diff < 0 ? 'red' : '';
+        } else {
+            diffTd.textContent = '';
+        }
+    }
+
+    function saveMileage(carId, mileage) {
+        fetch('/update_mileage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ car_id: carId, mileage: mileage })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status !== 'success') {
+                alert('Ошибка: ' + (data.message || 'Неизвестная ошибка'));
+            }
+        })
+        .catch(() => {
+            alert('Ошибка сети. Пробег не сохранён.');
+        });
+    }
+
+    // История по борту
+    const bortSelect = document.getElementById('bort-select');
+    const historyTable = document.getElementById('history-table');
+    const tbody = historyTable.querySelector('tbody');
+
+    bortSelect.addEventListener('change', function () {
+        const bort = this.value;
+        if (!bort) {
+            historyTable.style.display = 'none';
+            tbody.innerHTML = '';
+            return;
+        }
+
+        fetch(`/get_history/${encodeURIComponent(bort)}`)
+            .then(r => {
+                if (!r.ok) throw new Error('Серверная ошибка');
+                return r.json();
+            })
+            .then(data => {
+                tbody.innerHTML = '';
+                if (data.history && data.history.length > 0) {
+                    data.history.forEach(rec => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${rec.record_date}</td>
+                            <td>${rec.mileage}</td>
+                            <td>${rec.daily_mileage !== null ? rec.daily_mileage : '-'}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                    historyTable.style.display = '';
+                } else {
+                    historyTable.style.display = 'none';
+                    alert('История отсутствует');
+                }
+            })
+            .catch(err => {
+                alert('Ошибка загрузки: ' + err.message);
+                historyTable.style.display = 'none';
+            });
+    });
+});
+</script>
+{% endif %}
+{% endblock %}

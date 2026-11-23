@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}Контрольные точки{% endblock %}
+
+{% block body %}
+    {% if current_user.is_authenticated %}
+        {% if current_user.company == 'Сетранс' %}
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+            <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&display=swap"
+                  rel="stylesheet">
+
+            <div class="container mt-4">
+                <!-- Загрузка файла и фильтры -->
+                <div class="row mb-4">
+                    <div class="col-md-5">
+                        <div class="card shadow-sm">
+                            <div class="card-header bg-primary text-white">
+                                <i class="fas fa-upload me-2"></i> Загрузить Excel-файл
+                            </div>
+                            <div class="card-body">
+                                <form method="POST" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <div class="mb-3">
+                                        <label for="file" class="form-label">Выберите файл (tasks_export_*.xlsx)</label>
+                                        <input type="file" class="form-control" id="file" name="file"
+                                               accept=".xlsx,.xls" required>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary w-100">
+                                        <i class="fas fa-search me-2"></i> Загрузить
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-7">
+                        <div class="col-md-6">
+                            <div class="mt-3">
+                                <label for="dateSelect" class="form-label fw-bold">
+                                    <i class="fas fa-calendar-alt me-1"></i>
+                                    Выбрать дату:
+                                </label>
+
+                                {% if sorted_dates %}
+                                    <select id="dateSelect"
+                                            class="form-select"
+                                            onchange="location=this.value">
+                                        {% for date in sorted_dates %}
+                                            <option value="{{ url_for('checkpoints', target_date=date) }}"
+                                                    {% if date == target_date %}selected{% endif %}>
+                                                {{ date }}
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                {% else %}
+                                    <select class="form-select" disabled>
+                                        <option>Сначала загрузите Excel-файл</option>
+                                    </select>
+                                {% endif %}
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Таблица с бортами -->
+                {% if by_date and target_date in by_date %}
+                    <table class="table table-bordered table-hover align-middle">
+                        <thead class="text-center">
+                        <tr>
+                            <th style="width: 25%; background-color: rgba(0,79,255,0.24); color: #000000;">
+                                7:15 <span
+                                    class="ms-3 badge bg-light text-dark">{{ by_date[target_date]['7:15']['boards']|length }}</span>
+                            </th>
+                            <th style="width: 25%; background-color: rgba(0,79,255,0.24); color: #000000;">
+                                8:30 <span
+                                    class="ms-3 badge bg-light text-dark">{{ by_date[target_date]['8:30']['boards']|length }}</span>
+                            </th>
+                            <th style="width: 25%; background-color: rgba(0,79,255,0.24); color: black;">
+                                17:00 <span
+                                    class="ms-3 badge bg-dark text-white">{{ by_date[target_date]['17:00']['boards']|length }}</span>
+                            </th>
+                            <th style="width: 25%; background-color: rgba(0,79,255,0.24); color: #000000;">
+                                19:00 <span
+                                    class="ms-3 badge bg-light text-dark">{{ by_date[target_date]['19:00']['boards']|length }}</span>
+                            </th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% set max_rows = [
+                by_date[target_date]['7:15']['boards']|length,
+                by_date[target_date]['8:30']['boards']|length,
+                by_date[target_date]['17:00']['boards']|length,
+                by_date[target_date]['19:00']['boards']|length
+            ]|max %}
+
+                        {% if max_rows == 0 %}
+                            <tr>
+                                <td colspan="4" class="text-center text-muted py-5">
+                                    Нет бортов в работе за {{ target_date }}
+                                </td>
+                            </tr>
+                        {% else %}
+                            {% for i in range(max_rows) %}
+                                <tr>
+                                    <!-- 7:15 -->
+                                    <td class="text-start align-top">
+                                        {% if i < by_date[target_date]['7:15']['boards']|length %}
+                                            <div>{{ by_date[target_date]['7:15']['boards'][i] }}</div>
+                                        {% endif %}
+                                    </td>
+
+                                    <!-- 8:30 -->
+                                    <td class="text-start align-top">
+                                        {% if i < by_date[target_date]['8:30']['boards']|length %}
+                                            <div>{{ by_date[target_date]['8:30']['boards'][i] }}</div>
+                                        {% endif %}
+                                    </td>
+
+                                    <!-- 17:00 -->
+                                    <td class="text-start align-top">
+                                        {% if i < by_date[target_date]['17:00']['boards']|length %}
+                                            <div>{{ by_date[target_date]['17:00']['boards'][i] }}</div>
+                                        {% endif %}
+                                    </td>
+
+                                    <!-- 19:00 -->
+                                    <td class="text-start align-top">
+                                        {% if i < by_date[target_date]['19:00']['boards']|length %}
+                                            <div>{{ by_date[target_date]['19:00']['boards'][i] }}</div>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        {% endif %}
+                        </tbody>
+                    </table>
+
+                {% elif total_records == 0 %}
+                    <div class="alert alert-info text-center mt-4">
+                        <i class="fas fa-cloud-upload-alt" style="font-size: 2rem;"></i>
+                        <p class="mb-0">Загрузите Excel-файл, чтобы увидеть результаты анализа.</p>
+                    </div>
+                {% else %}
+                    <div class="alert alert-warning text-center mt-4">
+                        <i class="fas fa-exclamation-triangle" style="font-size: 2rem;"></i>
+                        <p class="mb-0">Нет данных для выбранной даты {{ target_date }}. Выберите другую дату из
+                            списка.</p>
+                    </div>
+                {% endif %}
+            </div>
+        {% else %}
+            <div class="container mt-4">
+                <div class="alert alert-danger" role="alert">
+                    У вас нет доступа к этой странице.
+                </div>
+            </div>
+        {% endif %}
+    {% endif %}
+
+    <style>
+        .table td {
+            padding: 8px 12px;
+            vertical-align: top;
+        }
+
+        .table td:first-child {
+            background-color: #f8f9fa;
+        }
+
+        #dateSelect {
+            cursor: pointer;
+            background-color: white;
+        }
+
+        #dateSelect:focus {
+            border-color: #0d6efd;
+            box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+        }
+    </style>
+{% endblock %}

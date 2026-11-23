@@ -3,180 +3,307 @@
 {% block title %}Отчеты{% endblock %}
 
 {% block body %}
+    {% set hide_so_blocks = True %}  <!-- Поменять на False чтобы показать Сезонное обслуживание -->
     {% if current_user.is_authenticated %}
-<div class="container mt-4">
-    <div class="row mt-4">
-        <!-- Левая колонка -->
-        <div class="col-md-6">
-            <!-- Карточка с отчетами -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5>Доступные отчеты</h5>
-                </div>
-                <div class="card-body">
-                    <div class="list-group">
-                        <a href="{{ url_for('report_7') }}" class="list-group-item list-group-item-action">
-                            Утренний отчет 7-00
-                        </a>
-                        <a href="{{ url_for('report_14') }}" class="list-group-item list-group-item-action">
-                            Дневной отчет 14-00
-                        </a>
-                        <a href="{{ url_for('report_17') }}" class="list-group-item list-group-item-action">
-                            Вечерний отчет 17-00
-                        </a>
-                        <a href="{{ url_for('report_19') }}" class="list-group-item list-group-item-action">
-                            Итоговый отчет 19-00
-                        </a>
-                        <a href="{{ url_for('itr_7') }}" class="list-group-item list-group-item-action">
-                            В ИТР на 7-00
-                        </a>
-                        <a href="{{ url_for('itr_19') }}" class="list-group-item list-group-item-action">
-                            В ИТР на 19-00
-                        </a>
+        {% if current_user.company == 'Сетранс' %}
+            <div class="container mt-4">
+                <div class="row mt-4">
+                    <!-- Левая колонка -->
+                    <div class="col-md-6">
+                        <!-- Карточка с отчетами -->
+                        <!-- Карточка с отчетами -->
+                        <div class="card mb-4">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5>Отчёты</h5>
+                                {#                                {% if current_user.username not in allowed_usernames %}#}
+                                {#                                    <span class="badge bg-secondary">Текущее время: {{ current_time }}</span>#}
+                                {#                                {% endif %}#}
+                            </div>
+                            <div class="card-body">
+                                <div class="list-group">
+                                    <!-- В ИТР на утро (всегда доступен) -->
+                                    <a href="{{ url_for('itr_7') }}" class="list-group-item list-group-item-action">
+                                        В ИТР на утро
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mb-4">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5>Количество бортов в парках</h5>
+                            </div>
+                            <div class="card-body">
+                                <table class="table table-bordered" id="fleetTable">
+                                    <tbody id="fleetTableBody">
+                                    {% for fleet in fleet_sizes %}
+                                        <tr data-zone='{{ fleet.zone | tojson | safe }}'>
+                                            <td>{{ fleet.location }}</td>
+                                            <td>
+                                                <input type="number" class="form-control form-control-sm fleet-input"
+                                                       value="{{ fleet.count }}" data-location="{{ fleet.location }}"
+                                                       data-id="{{ fleet.id }}">
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                    </tbody>
+                                </table>
+                                {% if current_user.username in allowed_usernames %}
+                                    <button id="saveFleetBtn" class="btn btn-primary mt-3">
+                                        <i class="bi bi-save"></i> Сохранить изменения
+                                    </button>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Правая колонка -->
+                    <div class="col-md-6">
+                        <!-- Для отчета -->
+                        <div class="card mb-4">
+                            <div class="card-body">
+                                <table class="table table-bordered" id="dateTable">
+                                    <thead class="table-light">
+                                    </thead>
+                                    <tbody>
+                                    {% for item in date | sort(attribute='location') %}
+                                        {% if item.location and item.location not in [
+                                        'Поступившие заявки',
+                                        'Закрытые заявки',
+                                        'Не подтвержденные заявки',
+                                        'ТО'] %}
+                                            {# Пропускаем СО Автобусы и СО Электробусы если hide_so_blocks = True #}
+                                            {% if not hide_so_blocks or item.location not in ['СО Автобусы', 'СО Электробусы'] %}
+                                                <tr>
+                                                    <td>{{ item.location }}</td>
+                                                    <td>
+                                                        <input type="number"
+                                                               class="form-control form-control-sm date-input"
+                                                               value="{{ item.count }}"
+                                                               data-location="{{ item.location }}"
+                                                               data-id="{{ item.id }}"
+                                                               data-previous-value="{{ item.count }}"
+                                                                {% if item.location in ['СО Автобусы', 'СО Электробусы'] %}
+                                                               onchange="checkSOSpecialLocations(this, {{ item.count }})"
+                                                                {% endif %}>
+                                                    </td>
+                                                </tr>
+                                            {% endif %}
+
+                                        {% endif %}
+                                    {% endfor %}
+                                    </tbody>
+                                </table>
+                                <button id="saveDateBtn" class="btn btn-primary mt-3">
+                                    <i class="bi bi-save"></i> Сохранить изменения
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
+        {% endif %}
 
-            <!-- Количество бортов в парке (перемещено сюда) -->
-            <div class="card mb-4">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5>Количество бортов в парке</h5>
-                </div>
-                <div class="card-body">
-                    <table class="table table-bordered" id="fleetTable">
-                        <thead class="table-light">
-                            <tr>
-                                <th style="width: 60%">Локация</th>
-                                <th style="width: 40%">Количество</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for fleet in fleet_sizes %}
-                            <tr>
-                                <td>{{ fleet.location }}</td>
-                                <td>
-                                    <input type="number" class="form-control form-control-sm fleet-input"
-                                           value="{{ fleet.count }}" data-location="{{ fleet.location }}">
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                    <button id="saveFleetBtn" class="btn btn-primary mt-3">
-                        <i class="bi bi-save"></i> Сохранить изменения
-                    </button>
-                </div>
-            </div>
-        </div>
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                // ----------------------------
+                // Фильтрация строк флота по выбранному парку
+                // ----------------------------
+                const fleetTableBody = document.getElementById('fleetTableBody');
+                if (fleetTableBody) {
+                    const rows = fleetTableBody.querySelectorAll('tr');
+                    const selectedPark = "{{ session.get('selected_park', '') }}";
+                    const filterZone = selectedPark;
 
-        <!-- Правая колонка -->
-        <div class="col-md-6">
-            <!-- Для отчета (перемещено сюда) -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5>Для отчёта</h5>
-                </div>
-                <div class="card-body">
-                    <table class="table table-bordered" id="dateTable">
-                        <thead class="table-light">
-                        </thead>
-                        <tbody>
-                            {% for item in date %}
-                            <tr>
-                                <td>{{ item.location }}</td>  <!-- Используйте реальное имя поля из вашей модели -->
-                                <td>
-                                    <input type="number" class="form-control form-control-sm date-input"
-                                           value="{{ item.count }}" data-location="{{ item.location }}">
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                    <button id="saveDateBtn" class="btn btn-primary mt-3">
-                        <i class="bi bi-save"></i> Сохранить изменения
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
- {% endif %}
+                    rows.forEach(row => {
+                        try {
+                            const zones = JSON.parse(row.dataset.zone);
+                            const shouldShow = filterZone === 'all' ||
+                                zones.includes(filterZone) ||
+                                zones.some(zone => zone.includes(filterZone));
+                            row.style.display = shouldShow ? '' : 'none';
+                        } catch (e) {
+                            console.error('Ошибка обработки зон:', e);
+                            row.style.display = 'none';
+                        }
+                    });
+                }
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Обработчик для сохранения данных
-    document.getElementById('saveFleetBtn').addEventListener('click', function() {
-        const inputs = document.querySelectorAll('.fleet-input');
-        const data = [];
+                // ----------------------------
+                // Сохранение данных флота
+                // ----------------------------
+                const saveFleetBtn = document.getElementById('saveFleetBtn');
+                if (saveFleetBtn) {
+                    saveFleetBtn.addEventListener('click', function () {
+                        const inputs = document.querySelectorAll('.fleet-input');
+                        const data = [];
 
-        inputs.forEach(input => {
-            data.push({
-                location: input.dataset.location,
-                count: parseInt(input.value) || 0
+                        inputs.forEach(input => {
+                            if (input.closest('tr').style.display !== 'none') {
+                                data.push({
+                                    id: parseInt(input.dataset.id),
+                                    location: input.dataset.location,
+                                    count: parseInt(input.value) || 0
+                                });
+                            }
+                        });
+
+                        fetch('/update_fleet', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(data)
+                        })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.status === 'success') {
+                                    // Показываем flash сообщение через перезагрузку
+                                    location.reload();
+                                } else {
+                                    // Если сервер вернул ошибку, показываем уведомление
+                                    showNotification('Ошибка при сохранении данных флота', 'error');
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Ошибка сохранения флота:', error);
+                                showNotification('Ошибка сети при сохранении флота', 'error');
+                            });
+                    });
+                }
+
+                // ----------------------------
+                // Сохранение данных дат
+                // ----------------------------
+                // 2. Обновленный обработчик сохранения
+                const saveDateBtn = document.getElementById('saveDateBtn');
+                if (saveDateBtn) {
+                    saveDateBtn.addEventListener('click', function () {
+                        const inputs = document.querySelectorAll('.date-input');
+                        const data = [];
+                        let hasError = false;
+
+                        inputs.forEach(input => {
+                            const location = input.dataset.location;
+                            const currentValue = parseInt(input.value) || 0;
+                            const previousValue = parseInt(input.dataset.previousValue) || 0;
+
+                            // Проверка условия для специфических полей
+                            if (['СО Автобусы', 'СО Электробусы'].includes(location)) {
+                                if (currentValue < previousValue) {
+                                    hasError = true;
+                                    input.classList.add('is-invalid');
+                                }
+                            }
+
+                            data.push({
+                                id: parseInt(input.dataset.id),
+                                location: location,
+                                count: currentValue
+                            });
+                        });
+
+                        // Если есть ошибка, не отправляем данные на сервер
+                        if (hasError) return;
+                        fetch('/update_date', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(data)
+                        })
+                            .then(response => {
+                                return response.json().then(data => {
+                                    if (!response.ok) {
+                                        throw new Error(data.message || "Ошибка");
+                                    }
+                                    return data;
+                                });
+                            })
+                            .then(data => {
+                                location.reload();
+                            })
+                            .catch(error => {
+                                location.reload();  // reload чтобы увидеть flash
+                            });
+
+
+                    });
+                }
+
+                // ----------------------------
+                // Функция для показа уведомлений (если не хотите перезагружать страницу)
+                // ----------------------------
+                function showNotification(message, type) {
+                    // Создаем элемент уведомления
+                    const notification = document.createElement('div');
+                    notification.className = `alert alert-${type === 'success' ? 'success' : 'danger'} alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3`;
+                    notification.style.zIndex = '9999';
+                    notification.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>`;
+
+                    // Добавляем на страницу
+                    document.body.appendChild(notification);
+
+                    // Автоматически скрываем через 5 секунд
+                    setTimeout(() => {
+                        notification.remove();
+                    }, 5000);
+                }
+
             });
-        });
 
-        fetch('/update_fleet', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(data)
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                {#alert('Данные флота успешно обновлены');#}
+            // 1. Функция проверки при вводе Сезонного обслуживания
+            window.checkSOSpecialLocations = function (input, previousValue) {
+                const currentValue = parseInt(input.value) || 0;
+
+                if (currentValue < previousValue) {
+                    input.classList.add('is-invalid'); // Красная рамка Bootstrap
+                    input.style.borderColor = '#dc3545';
+                } else {
+                    input.classList.remove('is-invalid');
+                    input.style.borderColor = '';
+                }
+            };
+        </script>
+
+        <style>
+            #fleetTable input, #dateTable input {
+                min-width: 80px;
             }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            alert('Ошибка при сохранении данных флота');
-        });
-    });
 
-    // Обработчик для сохранения данных дат
-document.getElementById('saveDateBtn').addEventListener('click', function() {
-    const inputs = document.querySelectorAll('.date-input');
-    const data = [];
+            .table-bordered {
+                border: 1px solid #dee2e6;
+            }
 
-    inputs.forEach(input => {
-        data.push({
-            location: input.dataset.location,
-            count: parseInt(input.value) || 0
-        });
-    });
+            .card {
+                margin-bottom: 20px;
+            }
 
-    fetch('/update_date', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data)
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.status === 'success') {
-            {#alert('Данные успешно обновлены');#}
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Ошибка при сохранении');
-    });
-});
-});
-</script>
+            /* Стили для flash-сообщений */
+            .alert {
+                margin-bottom: 20px;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            }
 
-<style>
-    #fleetTable input, #dateTable input {
-        min-width: 80px;
-    }
-    .table-bordered {
-        border: 1px solid #dee2e6;
-    }
-    .card {
-        margin-bottom: 20px;
-    }
-</style>
+            .alert-success {
+                background-color: #d4edda;
+                border-color: #c3e6cb;
+                color: #155724;
+            }
+
+            .alert-danger {
+                background-color: #f8d7da;
+                border-color: #f5c6cb;
+                color: #721c24;
+            }
+
+            .alert-info {
+                background-color: #d1ecf1;
+                border-color: #bee5eb;
+                color: #0c5460;
+            }
+        </style>
+    {% else %}
+        <div class="container mt-4">
+            <div class="alert alert-danger" role="alert">
+                У вас нет доступа к этой странице.
+            </div>
+        </div>
+    {% endif %}
 {% endblock %}

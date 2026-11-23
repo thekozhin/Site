@@ -1,60 +1,263 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-SgOJa3DmI69IUzQ2PVdRZhwQ+dy64/BUtbMJw1MZ8t5HZApcHrRKUc4W0kG879m7" crossorigin="anonymous">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
-    <title>{% block title %}{% endblock %}</title>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <script src="{{ url_for('static', filename='js/csrf-refresh.js', v='1') }}" data-refresh-url="{{ url_for('csrf_token_refresh') }}" defer></script>
+    <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css', v='incontrol-pending-1') }}">
+    <link rel="icon" href="{{ url_for('static', filename='img/logo.png') }}" type="image/png">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
+    <style>
+        /* Подменю "Экономические таблицы" в меню "Инфо" */
+        .dropdown-submenu {
+            position: relative;
+        }
 
+        .dropdown-submenu > .dropdown-menu {
+            top: -0.35rem;
+            left: 100%;
+            margin-left: 0.15rem;
+            display: none;
+        }
+
+        .dropdown-submenu:hover > .dropdown-menu {
+            display: block;
+        }
+
+        .dropdown-submenu > .dropdown-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+
+        .dropdown-submenu > .dropdown-item::after {
+            content: "";
+            border-top: 0.3em solid transparent;
+            border-bottom: 0.3em solid transparent;
+            border-left: 0.3em solid currentColor;
+        }
+    </style>
+    <title>{% block title %}{% endblock %}</title>
 </head>
 <body>
 <div class="container">
     <header class="p-3 text-bg-white">
         <div class="container">
             <div class="d-flex flex-wrap align-items-center justify-content-center justify-content-lg-start">
-                <a href="/" class="d-flex align-items-center mb-2 mb-lg-0 text-white text-decoration-none me-auto" style="margin-left: -15px;">
-                    <svg class="bi me-2" width="40" height="32" role="img" aria-label="Bootstrap"><use href="#bootstrap"></use></svg>
-                    <img class="header__img" src="{{ url_for('static',filename='img/law.png') }}" alt="law">
+                <a href="{{ url_for('index', sort_by=session.get('sort_by', 'board_number'), order=session.get('order', 'asc')) }}"
+                   class="d-flex align-items-center mb-2 mb-lg-0 text-white text-decoration-none me-auto"
+                   style="margin-left: -15px;">
+                    <img class="header__img" src="{{ url_for('static', filename='img/law.png') }}"
+                         alt="law" style="height: 55px; width: auto;">
                 </a>
-
-                <ul class="nav col-12 col-lg-auto me-lg-auto mb-2 justify-content-center mb-md-0">
-                    <li><a href="{{ url_for('index') }}" class="nav-link px-2 link-secondary">В ремонте</a></li>
-                    <li><a href="{{ url_for('about') }}" class="nav-link px-2 link-secondary">Готовые</a></li>
-                    <li><a href="{{ url_for('buses') }}" class="nav-link px-2 link-secondary">Автобусы</a></li>
-                    <li><a href="{{ url_for('electrobuses') }}" class="nav-link px-2 link-secondary">Электробусы</a></li>
-                    <li><a href="{{ url_for('reports') }}" class="nav-link px-2 link-secondary">Отчёты</a></li>
-                </ul>
                 {% if current_user.is_authenticated %}
-                <div class="text-end">
-                    <button type="button" class="btn btn-primary me-2" data-bs-toggle="modal" data-bs-target="#addTaskModal">Добавить</button>
-                </div>
+                    {% if current_user.company in ['Сетранс'] %}
+                        <ul class="nav col-12 col-lg-auto me-lg-auto mb-2 justify-content-center mb-md-0">
+                        <li>
+                            <a href="{{ url_for('index', sort_by=session.get('sort_by', 'board_number'), order=session.get('order', 'asc')) }}"
+                               class="nav-link px-2 {{ 'text-primary' if request.endpoint == 'index' else 'link-secondary' }}">В
+                                ремонте</a>
+                        <li><a href="{{ url_for('about') }}"
+                               class="nav-link px-2 {{ 'text-primary' if request.endpoint == 'about' else 'link-secondary' }}">Готовые</a>
+                        <li class="nav-item dropdown">
+                            <a class="nav-link px-2 dropdown-toggle {{ 'text-primary' if request.endpoint in ['buses', 'electrobuses'] else 'link-secondary' }}"
+                               href="#" id="vehiclesDropdown" role="button" data-bs-toggle="dropdown"
+                               aria-expanded="false">
+                                ТС
+                            </a>
+                            <ul class="dropdown-menu" aria-labelledby="vehiclesDropdown">
+                                <li><a class="dropdown-item {{ 'active' if request.endpoint == 'buses' else '' }}"
+                                       href="{{ url_for('buses') }}">Автобусы</a></li>
+                                <li>
+                                    <a class="dropdown-item {{ 'active' if request.endpoint == 'electrobuses' else '' }}"
+                                       href="{{ url_for('electrobuses') }}">Электробусы</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="{{ url_for('reports') }}"
+                               class="nav-link px-2 {{ 'text-primary' if request.endpoint == 'reports' else 'link-secondary' }}">Отчёты</a>
+                        </li>
+                        <li><a href="{{ url_for('eto') }}"
+                               class="nav-link px-2 {{ 'text-primary' if request.endpoint == 'eto' else 'link-secondary' }}">ЕТО</a>
+                        </li>
+                        <!--                     <li><a href="{{ url_for('so') }}" class="nav-link px-2 {{ 'text-primary' if request.endpoint == 'so' else 'link-secondary' }}">СО</a></li>
+ -->                    {% endif %}
+
+
+
+                <li class="nav-item dropdown">
+                    <a class="nav-link px-2 dropdown-toggle {{ 'text-primary' if request.endpoint in ['evacuation'] else 'link-secondary' }}"
+                       href="#" id="vehiclesDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        Инфо
+                    </a>
+                    <ul class="dropdown-menu" aria-labelledby="vehiclesDropdown">
+                        {% if current_user.is_authenticated %}
+                            <li><a class="dropdown-item {{ 'active' if request.endpoint == 'evacuation' else '' }}"
+                                   href="{{ url_for('evacuation') }}">Эвакуация</a></li>
+                            <li><a class="dropdown-item {{ 'active' if request.endpoint == 'reports_ktg' else '' }}"
+                                   href="{{ url_for('reports_ktg') }}">КТГ</a></li>
+                        {% endif %}
+                        <li><a class="dropdown-item {{ 'active' if request.endpoint == 'to_schedule' else '' }}"
+                               href="{{ url_for('to_schedule') }}">График ТО</a></li>
+
+                        <li class="dropdown-submenu">
+                            <a class="dropdown-item" href="#">
+                                Экономические таблицы
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li>
+                                    <a class="dropdown-item"
+                                       href="https://docs.google.com/spreadsheets/d/1DkluZnPgCuS5Cv0YUGFYEARQKKxwkOQIslutgecrPwc/edit?gid=1263447573#gid=1263447573"
+                                       target="_blank" rel="noopener noreferrer">КЖЦ 2</a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item"
+                                       href="https://docs.google.com/spreadsheets/d/1fBCG9lcyTkG5Pw8u6AA8zAjyy61d8n0s7tTznTYzWfE/edit?gid=1017362134#gid=1017362134"
+                                       target="_blank" rel="noopener noreferrer">КЖЦ 6</a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item"
+                                       href="https://docs.google.com/spreadsheets/d/1EWYup_rbyHplEnnHBDFMb8F3SV8PI09IgkQ36RTswi8/edit?gid=1303048063#gid=1303048063"
+                                       target="_blank" rel="noopener noreferrer">КЖЦ 8</a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item"
+                                       href="https://docs.google.com/spreadsheets/d/1jR8XuT9-vmJwazrZo3yboNEPUg2vj9neQ7KulcRouc8/edit?gid=1399648125#gid=1399648125"
+                                       target="_blank" rel="noopener noreferrer">КЖЦ 9</a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item"
+                                       href="https://docs.google.com/spreadsheets/d/1AUe4_oGrYxVinPBbCdagvDUldnceVerABTLv69jAWwQ/edit?gid=686837962#gid=686837962"
+                                       target="_blank" rel="noopener noreferrer">КЖЦ 11</a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item"
+                                       href="https://docs.google.com/spreadsheets/d/1Ue-LlwVJOHfSzynr6v4mcZBkMkCvcG0r-O5zcdIU3-k/edit?gid=440219763#gid=440219763"
+                                       target="_blank" rel="noopener noreferrer">КЖЦ 12</a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item"
+                                       href="https://docs.google.com/spreadsheets/d/1umvbnUbBrKPi-__QgQKLEjPOO5pnA8fxON2g7VcZyvc/edit?gid=1530129979#gid=1530129979"
+                                       target="_blank" rel="noopener noreferrer">КЖЦ 15</a>
+                                </li>
+                            </ul>
+                        </li>
+                        <li><a class="dropdown-item {{ 'active' if request.endpoint == 'dashboard' else '' }}"
+                               href="{{ url_for('dashboard') }}">Dashboard</a>
+                        </li>
+                        <li><a class="dropdown-item {{ 'active' if request.endpoint == 'checkpoints' else '' }}"
+                               href="{{ url_for('checkpoints') }}">МГТ0223-25</a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="https://ktg.proverka-zn.ru/" target="_blank"
+                               rel="noopener noreferrer">Сводка КТГ</a>
+                        </li>
+                        <li>
+                            {%- if selected_park in ['14 парк'] %}
+                                <a class="dropdown-item"
+                                   href="https://docs.google.com/spreadsheets/d/1-0dD2K79KDh1hHDmYqTbvJQFqDJC7fktgLqhv8R5qA8/edit?gid=1577198341#gid=1577198341"
+                                   target="_blank" rel="noopener noreferrer">Сводка ГД</a>
+                            {%- endif %}
+                            {%- if selected_park in ['1 парк'] %}
+                                <a class="dropdown-item"
+                                   href="https://docs.google.com/spreadsheets/d/1-0dD2K79KDh1hHDmYqTbvJQFqDJC7fktgLqhv8R5qA8/edit?gid=1479708954#gid=1479708954"
+                                   target="_blank" rel="noopener noreferrer">Сводка ГД</a>
+                            {%- endif %}
+                            {%- if selected_park in ['Красная Пахра'] %}
+                                <a class="dropdown-item"
+                                   href="https://docs.google.com/spreadsheets/d/1-0dD2K79KDh1hHDmYqTbvJQFqDJC7fktgLqhv8R5qA8/edit?gid=2011389958#gid=2011389958"
+                                   target="_blank" rel="noopener noreferrer">Сводка ГД</a>
+                            {%- endif %}
+                            {%- if selected_park in ['18 парк'] %}
+                                <a class="dropdown-item"
+                                   href="https://docs.google.com/spreadsheets/d/1-0dD2K79KDh1hHDmYqTbvJQFqDJC7fktgLqhv8R5qA8/edit?gid=1217953817#gid=1217953817"
+                                   target="_blank" rel="noopener noreferrer">Сводка ГД</a>
+                            {%- endif %}
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="https://docs.google.com/spreadsheets/d/1HaqhdD2qZuC3iimiEdtl4xmZ2pjw9ngEzKX_tSXF2WU/edit?gid=870612608#gid=870612608" target="_blank"
+                               rel="noopener noreferrer">Сводка кузовного ремонта</a>
+                        </li>
+                    </ul>
+                </li>
+                {% if current_user.is_authenticated %}
+                    <li><a href="{{ url_for('body_repair') }}"
+                           class="nav-link px-2 {{ 'text-primary' if request.endpoint in ['body_repair', 'add_body_repair', 'update_body_repair_status', 'complete_body_repair'] else 'link-secondary' }}">Кузов</a>
+                    </li>
                 {% endif %}
-                <form class="col-12 col-lg-auto mb-3 mb-lg-0 me-lg-2" role="search">
-                    <input type="search" class="form-control form-control-dark text-bg-white" placeholder="" aria-label="Search">
+                </ul>
+                {% endif %}
+
+                {% if current_user.is_authenticated %}
+                    <div class="dropdown me-2">
+                        <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="parkDropdown"
+                                data-bs-toggle="dropdown" aria-expanded="false">
+                            {{ session.get('selected_park', 'Выберите парк') }}
+                        </button>
+                        <ul class="dropdown-menu" aria-labelledby="parkDropdown">
+                            {% if allowed_parks %}
+                                {% for park in allowed_parks %}
+                                    <li>
+                                        <a class="dropdown-item {% if park == session.get('selected_park') %}active{% endif %}"
+                                           href="#"
+                                           onclick="selectPark('{{ park }}')">
+                                            {{ park }}
+                                        </a>
+                                    </li>
+                                {% endfor %}
+                            {% else %}
+                                <li><a class="dropdown-item disabled">Нет доступных парков</a></li>
+                            {% endif %}
+                        </ul>
+                    </div>
+
+                    {% if current_user.company in ['Сетранс'] %}
+                        <div class="text-end">
+                            <button type="button" class="btn btn-primary me-2" data-bs-toggle="modal"
+                                    data-bs-target="#addTaskModal">Добавить
+                            </button>
+                        </div>
+                    {% endif %}
+                {% endif %}
+
+                <form class="col-12 col-lg-auto mb-3 mb-lg-0 me-lg-2" role="search" method="GET"
+                      action="{{ url_for('about') }}">
+                    <input type="search" class="form-control form-control-dark text-bg-white" name="search"
+                           placeholder="Поиск..." aria-label="Search" value="{{ search_term | default('') }}">
                 </form>
 
                 <div class="text-end">
                     {% if current_user.is_authenticated %}
-{#                    <span class="navbar-text me-2">{{ current_user.full_name }}</span>#}
                         <form action="{{ url_for('logout') }}" method="GET" style="display:inline;">
-                        <button type="submit" class="btn btn-outline-orange me-2">{{ current_user.full_name }}</button>
+                            <button type="submit"
+                                    class="btn btn-outline-orange me-2">{{ current_user.full_name }}</button>
                         </form>
+                        <a href="{{ url_for('incontrol_settings') }}" class="btn btn-outline-secondary"
+                           title="Настройки аккаунта и закрытия заявок" aria-label="Настройки аккаунта и закрытия заявок">
+                            <i class="bi bi-gear" aria-hidden="true"></i>
+                        </a>
                     {% else %}
-                        <button type="button" class="btn btn-outline-orange me-2" data-bs-toggle="modal" data-bs-target="#loginModal">Войти</button>
+                        <button type="button" class="btn btn-outline-orange me-2" data-bs-toggle="modal"
+                                data-bs-target="#loginModal">Войти
+                        </button>
                     {% endif %}
                 </div>
             </div>
         </div>
     </header>
 
-<!-- Включаем модальное окно входа -->
+    <!-- Включаем модальное окно входа -->
     {% include 'login_modal.html' %}
-<!-- Add Task Modal -->
-    <form id="addTaskForm" method="POST" action="{{ url_for('add_task') }}" class="mt-3 mb-3">
+
+    <!-- Add Task Modal -->
+    <form id="addTaskForm" method="POST"
+          action="{{ url_for('add_task', sort_by=session.get('sort_by', 'board_number'), order=session.get('order', 'asc')) }}"
+          class="mt-3 mb-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal fade" id="addTaskModal" tabindex="-1" aria-labelledby="addTaskModalLabel" aria-hidden="true">
             <div class="modal-dialog">
                 <div class="modal-content">
@@ -62,40 +265,176 @@
                         <h5 class="modal-title" id="addTaskModalLabel">Добавить задачу</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
-                    <form action="{{ url_for('add_task') }}" method="POST">
-                        <div class="modal-body">
-                            <div class="mb-3">
-                                <label for="board_number" class="form-label">Номер борта</label>
-                                <input type="text" class="form-control" id="board_number" name="board_number" required>
-                            </div>
-                            <div class="mb-3">
-                                <label for="description" class="form-label">Описание</label>
-                                <textarea class="form-control" id="description" name="description" rows="3" required></textarea>
-                            </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="board_number" class="form-label">Номер борта</label>
+                            <input type="text" class="form-control" id="board_number" name="board_number" required>
                         </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
-                            <button type="submit" class="btn btn-primary">Сохранить</button>
+                        <div class="mb-3">
+                            <label for="description" class="form-label">Описание</label>
+                            <textarea class="form-control" id="description" name="description" rows="3"
+                                      required></textarea>
+                        </div>
+                        <input type="hidden" name="sort_by" value="{{ session.get('sort_by', 'board_number') }}">
+                        <input type="hidden" name="order" value="{{ session.get('order', 'asc') }}">
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                        <button type="submit" class="btn btn-primary" name="action" value="save">Сохранить</button>
+                        <!--                         <button type="submit" class="btn btn-success" name="action" value="complete">Готов</button> -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+
+    {% set pending_comment = session.get('pending_car_comment') %}
+    {% set pending_task = session.get('pending_add_task') %}
+
+    {% if pending_comment and pending_task %}
+        <div class="modal fade" id="carCommentModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content border-warning">
+                    <div class="modal-header bg-warning text-dark">
+                        <h5 class="modal-title">
+                            <i class="bi bi-exclamation-triangle-fill"></i>
+                            Внимание!
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+
+                    <form method="POST"
+                          action="{{ url_for('add_task', sort_by=session.get('sort_by', 'board_number'), order=session.get('order', 'asc')) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="modal-body">
+                            <div class="card border-danger mb-3">
+                                <div class="card-body">
+                                    <p class="card-text">{{ pending_comment.comment }}</p>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-info">
+                                {% if pending_task.description %}
+                                    <small>Описание заявки: {{ pending_task.description }}</small>
+                                {% endif %}
+                            </div>
+
+                            <input type="hidden" name="board_number" value="{{ pending_task.board_number }}">
+                            <input type="hidden" name="description" value="{{ pending_task.description }}">
+                            <input type="hidden" name="sort_by" value="{{ session.get('sort_by', 'board_number') }}">
+                            <input type="hidden" name="order" value="{{ session.get('order', 'asc') }}">
+                            <input type="hidden" name="comment_checked" value="1">
+                        </div>
+
+                        <div class="modal-footer d-flex justify-content-between flex-wrap">
+                            <div>
+                                <button type="submit" class="btn btn-danger" name="comment_action" value="delete">
+                                    <i class="bi bi-trash-fill"></i> Удалить комментарий
+                                </button>
+                            </div>
+                            <div>
+                                <button type="submit" class="btn btn-secondary" name="comment_action" value="cancel">
+                                    <i class="bi bi-x-circle-fill"></i> Отмена
+                                </button>
+                                <button type="submit" class="btn btn-success" name="comment_action" value="proceed">
+                                    <i class="bi bi-check-circle-fill"></i> Открыть заявку
+                                </button>
+                            </div>
                         </div>
                     </form>
                 </div>
             </div>
         </div>
-    </form>
+    {% endif %}
+
+
     {% block body %}{% endblock %}
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js" integrity="sha384-SgOJa3DmI69IUzQ2PVdRZhwQ+dy64/BUtbMJw1MZ8t5HZApcHrRKUc4W0kG879m7" crossorigin="anonymous"></script>
-</body>
-</html>
+{% if current_user.is_authenticated %}
+<a id="incontrolPendingReminder" class="btn btn-warning rounded-pill" hidden
+   href="{{ url_for('incontrol_pending') }}" data-count-url="{{ url_for('incontrol_pending_count') }}"
+   aria-label="К отписке" title="К отписке">
+    <i class="bi bi-bell-fill" aria-hidden="true"></i> <span data-count></span>
+</a>
+<script src="{{ url_for('static', filename='js/incontrol-pending.js', v='2') }}" defer></script>
+{% endif %}
+
+<!-- Toast уведомления -->
+<div aria-live="polite" aria-atomic="true" class="position-relative">
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="toast align-items-center
+    {% if category == 'success' %}text-bg-success
+    {% elif category == 'error' %}text-bg-danger
+    {% elif category == 'warning' %}text-bg-warning
+    {% else %}text-bg-info
+    {% endif %}
+    border-0" role="alert" aria-live="assertive" aria-atomic="true">
+                        <div class="d-flex">
+                            <div class="toast-body">
+                                {{ message }}
+                            </div>
+                            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"
+                                    aria-label="Close"></button>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+</div>
 
 <script>
-  document.addEventListener('DOMContentLoaded', function() {
-    {% with messages = get_flashed_messages(category_filter=["login_error"]) %}
-      {% if messages %}
-        var loginModal = new bootstrap.Modal(document.getElementById('loginModal'));
-        loginModal.show();
-      {% endif %}
-    {% endwith %}
-  });
+    document.addEventListener('DOMContentLoaded', function () {
+        {% with messages = get_flashed_messages(category_filter=["login_error"]) %}
+            {% if messages %}
+                var loginModal = new bootstrap.Modal(document.getElementById('loginModal'));
+                loginModal.show();
+            {% endif %}
+        {% endwith %}
+
+        // Автопоказ тостов
+        const toastElList = [].slice.call(document.querySelectorAll('.toast'));
+        toastElList.forEach(function (toastEl) {
+            const toast = new bootstrap.Toast(toastEl, {delay: 4000});
+            toast.show();
+        });
+    });
+
+    function selectPark(parkName) {
+        fetch('/set_park', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({park: parkName})
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('parkDropdown').textContent = parkName;
+                    location.reload();
+                }
+            });
+    }
 </script>
+{% if pending_comment and pending_task %}
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const modalEl = document.getElementById('carCommentModal');
+
+            if (modalEl) {
+                const modal = new bootstrap.Modal(modalEl);
+                modal.show();
+            }
+        });
+    </script>
+{% endif %}
+
+
+
+</body>
+</html>

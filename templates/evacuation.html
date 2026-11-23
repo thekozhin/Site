@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block body %}
+    {% if current_user.is_authenticated %}
+        {% if current_user.company == 'Сетранс' %}
+<div class="container mt-5">
+    <h5 class="mb-4">Заявка на буксировку (эвакуацию) транспортных средств</h5>
+
+    <form method="POST" action="/generate_evacuation">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <!-- Бортовой номер -->
+        <div class="mb-3">
+            <label for="bort" class="form-label">Гаражный номер</label>
+            <input type="text" class="form-control" id="bort" name="bort" required>
+        </div>
+
+        <!-- Заказ-наряд -->
+        <div class="mb-3">
+            <label for="zakaz" class="form-label">Номер заказ-наряда</label>
+            <input type="text" class="form-control" id="zakaz" name="zakaz" required>
+        </div>
+        <!-- Причина неисправности -->
+        <div class="mb-3">
+            <label for="opisanie" class="form-label">Причина неисправности т/с</label>
+            <textarea class="form-control" id="opisanie" name="opisanie" rows="3" required></textarea>
+        </div>
+
+        <!-- Водитель -->
+        <div class="mb-3">
+            <label for="driver" class="form-label">Водитель т/с (Ф.И.О.)</label>
+            <input type="text" class="form-control" id="driver" name="driver" required>
+        </div>
+
+        <!-- Телефон водителя -->
+        <div class="mb-3">
+            <label for="number_driver" class="form-label">Телефон водителя</label>
+            <input type="tel" class="form-control" id="number_driver" name="number_driver" required>
+        </div>
+
+{#        <!-- Табельный -->#}
+{#        <div class="mb-3">#}
+{#            <label for="table" class="form-label">Табельный номер</label>#}
+{#            <input type="text" class="form-control" id="table" name="table">#}
+{#        </div>#}
+
+{#        <!-- Маршрут -->#}
+{#        <div class="mb-3">#}
+{#            <label for="marshrut" class="form-label">Маршрут работы №</label>#}
+{#            <input type="text" class="form-control" id="marshrut" name="marshrut" required>#}
+{#        </div>#}
+
+        <!-- Местонахождение -->
+        <div class="mb-3">
+            <label for="kuda_ehat" class="form-label">Точное местонахождение Т\С</label>
+            <input type="text" class="form-control" id="kuda_ehat" name="kuda_ehat" required>
+        </div>
+
+{#        <!-- Куда везти -->#}
+{#        <div class="mb-3">#}
+{#            <label for="kuda_vezti" class="form-label">Куда осуществить эвакуацию</label>#}
+{#            <input type="text" class="form-control" id="kuda_vezti" name="kuda_vezti" value="{{ evacuation_address }}" readonly>#}
+{#        </div>#}
+
+        <button type="submit" class="btn btn-primary">Сформировать заявку</button>
+    </form>
+</div>
+
+<!-- JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/inputmask/5.0.8/inputmask.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css" rel="stylesheet"/>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    // Маска телефона
+    Inputmask({
+        mask: "8(999)999-99-99",
+        showMaskOnHover: false,
+        clearIncomplete: true
+    }).mask(document.getElementById('number_driver'));
+
+    // Select2 для бортов
+    $('#bort').select2({
+        placeholder: 'Введите бортовой номер',
+        tags: true,
+        allowClear: true,
+        ajax: {
+            url: '/get_vehicles',
+            dataType: 'json',
+            delay: 250,
+            data: function (params) {
+                return {
+                    q: params.term,
+                    park: '{{ selected_park }}'
+                };
+            },
+            processResults: function (data) {
+                return {
+                    results: data.vehicles.map(function (v) {
+                        return {
+                            id: v.bort,
+                            text: v.bort + ' (' + v.type_ts + ')',
+                            gos_number: v.gos_number
+                        };
+                    })
+                };
+            },
+            cache: true
+        },
+        minimumInputLength: 1
+    });
+
+    // Удаляем обработчики для gos_number, если поле не отображается
+    // $('#bort').on('select2:select', function (e) {
+    //     const data = e.params.data;
+    //     document.getElementById('gos_number').value = data.gos_number || '';
+    // });
+
+    // $('#bort').on('select2:clear', function () {
+    //     document.getElementById('gos_number').value = '';
+    // });
+
+    // $('#bort').on('blur', function () {
+    //     const bortValue = $(this).val();
+    //     if (bortValue) {
+    //         fetch(`/get_gos_number/${bortValue}`)
+    //             .then(r => r.json())
+    //             .then(data => {
+    //                 if (data.gos_number) {
+    //                     document.getElementById('gos_number').value = data.gos_number;
+    //                 }
+    //             })
+    //             .catch(err => console.error(err));
+    //     }
+    // });
+
+    $('#number_driver').on('input', function() {
+        const value = $(this).val();
+        if (value.match(/^\d{11}$/)) {
+            $(this).val(value.replace(/^(\d)(\d{3})(\d{3})(\d{2})(\d{2})$/, '$1($2)$3-$4-$5'));
+        }
+    });
+});
+</script>
+{% else %}
+    <div class="container mt-4">
+        <div class="alert alert-danger" role="alert">
+            У вас нет доступа к этой странице.
+        </div>
+    </div>
+    {% endif %}
+    {% endif %}
+{% endblock %}

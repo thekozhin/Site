@@ -1,30 +1,32 @@
 {% extends "base.html" %}
 
-{% block title %}Отчет {{ time }} {{ date }}{% endblock %}
+{% block title %}Отчет {{ date }}{% endblock %}
 
 {% block body %}
-<div class="container mt-4 document-style" id="report-content">
-    <!-- Шапка документа -->
-    <div class="text-left mb-4">
-        <h5 class="mb-1">Доброе утро! На  {{ date }}</h5>
-       <h5 class="mb-1">СЦ "Теплый Стан"</h5>
-    </div>
-    <br> <!-- вставка пустой строки -->
+{% if selected_park in ['Красная Пахра','18 парк','1 парк','14 парк'] %}
+<div class="container mt-4 document-style" id="report-content" style="white-space: pre-line;">
+    Доброе утро! На {{ date }}
+    СЦ "{{ PARK_NAME.get(selected_park, 'Неизвестный парк') }}"
 
-    <!-- Таблица с данными -->
-    <table class="text-left mb-4">
-        <tbody>
-            {% for item in date_data %}
-            <tr>
-                <td>{{ item.location }}</td>
-                <td>{{ item.count }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-
-
+    Поступившие заявки {{ tasks_created }}
+    Закрытые заявки {{ tasks_completed }}
+    Сходов {{ manual.get('Сходов', 0) }}
+    Выездов ТП {{ manual.get('Выездов ТП', 0) }}
+    Не подтвержденные заявки {{ tasks_rejected }}
+    ТО {{ tasks_to }}
+    ЕТО Автобусы - {{ eto_passed }} ({{ eto_percentage|round(2) }}%)
+    {%- if selected_park in ['Красная Пахра','1 парк'] %}
+        ЕТО Электробусы - {{ eto_passed_el }} ({{ eto_percentage_el|round(2) }}%)
+    {%- endif %}
+    Закрыто н\ч {{ manual.get('Закрыто н\\ч', 0) }}
+    Оставшихся бортов в работе {{ in_repair_count }}
+    Закрыто н\ч подрядчиками {{ manual.get('Закрыто н\\ч подрядчиками', 0) }}
+<!--     СО Автобусы - {{ so_bus }} ед. ({{so_bus_percentage|round(2) }}%)
+{%- if selected_park in ['Красная Пахра','1 парк'] %}
+    СО Электробусы - {{ so_elbus }} ед. ({{so_elbus_percentage|round(2) }}%)
+{%- endif %} -->
 </div>
+
     <!-- Кнопки управления (не печатаются) -->
     <div class="no-print mt-4 text-center">
         <button id="copyReportBtn" class="btn btn-primary">
@@ -40,17 +42,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const copyBtn = document.getElementById('copyReportBtn');
 
     copyBtn.addEventListener('click', function() {
-        // Получаем содержимое отчета
         const reportContent = document.getElementById('report-content').innerText;
 
-        // Копируем в буфер обмена
         navigator.clipboard.writeText(reportContent)
             .then(() => {
-                // Временное изменение текста кнопки для подтверждения
                 const originalText = copyBtn.innerHTML;
                 copyBtn.innerHTML = '<i class="bi bi-check2"></i> Скопировано!';
 
-                // Возвращаем исходный текст через 2 секунды
                 setTimeout(() => {
                     copyBtn.innerHTML = originalText;
                 }, 2000);
@@ -62,5 +60,5 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
-
+{% endif %}
 {% endblock %}

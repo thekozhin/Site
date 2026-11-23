@@ -9,31 +9,59 @@
             <h4>Редактирование автобуса</h4>
         </div>
         <div class="card-body">
+            <!-- Отображение flash-сообщений -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <!-- Форма редактирования автобуса -->
             <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="row g-3">
                     <div class="col-md-4">
                         <label class="form-label">Борт №</label>
-                        <input type="text" class="form-control" name="bort" value="{{ car.bort }}" required>
+                        <input type="text" class="form-control" name="bort" value="{{ car.bort if car else '' }}" required>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">Гос. номер</label>
-                        <input type="text" class="form-control" name="gos_number" value="{{ car.gos_number }}">
+                        <input type="text" class="form-control" name="gos_number" value="{{ car.gos_number if car else '' }}">
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">Год выпуска</label>
-                        <input type="number" class="form-control" name="year" value="{{ car.year }}">
+                        <input type="number" class="form-control" name="year" value="{{ car.year if car else '' }}">
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">VIN</label>
-                        <input type="text" class="form-control" name="vin" value="{{ car.vin }}">
+                        <input type="text" class="form-control" name="vin" value="{{ car.vin if car else '' }}">
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">Местонахождение</label>
-                        <input type="text" class="form-control" name="location" value="{{ car.location }}">
+                        <select class="form-select" name="location" required>
+                            <option value="1 парк" {% if car and car.location == '1 парк' %}selected{% endif %}>1 парк</option>
+                            <option value="14 парк" {% if car and car.location == '14 парк' %}selected{% endif %}>14 парк</option>
+                            <option value="18 парк" {% if car and car.location == '18 парк' %}selected{% endif %}>18 парк</option>
+                            <option value="Красная Пахра" {% if car and car.location == 'Красная Пахра' %}selected{% endif %}>Красная Пахра</option>
+                        </select>
                     </div>
                     <div class="col-12">
                         <label class="form-label">Контракт</label>
-                        <input type="text" class="form-control" name="contract" value="{{ car.contract }}">
+                        <select class="form-select" name="contract" required>
+                            <option value="216644" {% if car and car.contract == '216644' %}selected{% endif %}>216644</option>
+                            <option value="222150" {% if car and car.contract == '222150' %}selected{% endif %}>222150</option>
+                            <option value="МГТ0105-21" {% if car and car.contract == 'МГТ0105-21' %}selected{% endif %}>МГТ0105-21</option>
+                            <option value="МГТ0223-25" {% if car and car.contract == 'МГТ0223-25' %}selected{% endif %}>МГТ0223-25</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Комментарий</label>
+                        <textarea class="form-control" name="comments" rows="3">{{ car.comments if car and car.comments else '' }}</textarea>
                     </div>
                     <div class="col-12">
                         <button type="submit" class="btn btn-primary">Сохранить</button>
@@ -44,19 +72,31 @@
         </div>
     </div>
 </div>
-{% endblock %}
 
+<!-- JavaScript для валидации на стороне клиента -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const bortInput = document.querySelector('input[name="bort"]');
+    const vinInput = document.querySelector('input[name="vin"]');
     const form = document.querySelector('form');
 
     form.addEventListener('submit', function(e) {
-        const bortValue = parseInt(bortInput.value);
-        if (isNaN(bortValue)) {
-            alert('Номер борта должен быть числом');
+        // Проверка номера борта
+        const bortValue = bortInput.value.trim();
+        if (!/^\d+$/.test(bortValue)) {
+            alert('Номер борта должен состоять только из цифр');
             e.preventDefault();
+            return;
+        }
+
+        // Проверка VIN (17 символов, только буквы и цифры)
+        const vinValue = vinInput.value.trim();
+        if (vinValue && !/^[A-Za-z0-9]{17}$/.test(vinValue)) {
+            alert('VIN должен состоять из 17 букв и/или цифр');
+            e.preventDefault();
+            return;
         }
     });
 });
 </script>
+{% endblock %}

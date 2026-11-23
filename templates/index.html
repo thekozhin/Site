@@ -4,149 +4,460 @@
 
 {% block body %}
     {% if current_user.is_authenticated %}
-<div class="mt-4">
-    <h6> Открытые заявки | 2 - {{ ktg_2|round(2) }}% | 6 - {{ ktg_6|round(2) }}% | 8 - {{ ktg_8|round(2) }}%</h6>
+        {% if current_user.company == 'Сетранс' %}
+            <div class="mt-4" id="indexLiveView"
+                 data-refresh-url="{{ url_for('index') }}" data-park="{{ selected_park or '' }}"
+                 data-sort-by="{{ index_sort_by }}" data-order="{{ index_sort_order }}"
+                 data-csrf-url="{{ url_for('index_csrf_token') }}"
+                 data-refresh-interval="300000">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div id="indexCounters">{% include '_index_counters.html' %}</div>
 
-
-    <!-- Модальное окно подтверждения -->
-    <div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Подтверждение</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <p>Борт <span id="existingBoardNumber"></span> уже существует в списке с описанием: <span id="existingDescription"></span></p>
-                    <p>Вы действительно хотите добавить его повторно?</p>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-                    <button type="button" id="confirmAdd" class="btn btn-primary">Добавить</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Список задач -->
-    <div class="list-group mt-3">
-        {% for task in tasks %}
-        <div class="list-group-item">
-            <div class="d-flex justify-content-between align-items-center">
-                <div class="flex-grow-1">
-                    <h5 class="mb-1">
-                        {{ task.board_number }}
-                            {% if task.board_number in cars %}
-        {% if cars[task.board_number] == "МГТ0105-21" %}
-            <span class="contract-badge badge-1" title="Контракт: МГТ0105-21">8</span>
-        {% elif cars[task.board_number] == "216644" %}
-            <span class="contract-badge badge-2" title="Контракт: 216644">2</span>
-        {% elif cars[task.board_number] == "222150" %}
-            <span class="contract-badge badge-3" title="Контракт: 222150">6</span>
-        {% else %}
-            <span class="contract-badge badge-unknown" title="Контракт: {{ cars[task.board_number] }}">?</span>
-        {% endif %}
-    {% elif task.board_number in elcars %}
-        <span class="contract-badge badge-unknown" title="Электробус: {{ elcars[task.board_number] }}">E</span>
-    {% else %}
-        <span class="contract-badge badge-unknown" title="Контракт не указан">?</span>
-    {% endif %}
-</h5>
-
-
-                    </h5>
-                    <p class="mb-1 text-muted">
-                        {{ task.description.replace('\n', ', ') }}
-                        <a href="{{ url_for('edit_description', task_id=task.id) }}"
-                           class="ms-2 text-decoration-none" title="Редактировать">
-                            <i class="bi bi-pencil-square"></i>
-                        </a>
-                    </p>
-                </div>
-                <div class="d-flex align-items-center">
-                    <!-- Выпадающий список меток -->
-                    <div class="dropdown me-2">
-                        <button class="btn btn-sm dropdown-toggle tag-pill tag-{{ task.tag }}" type="button"
-                                id="tagDropdown{{ task.id }}" data-bs-toggle="dropdown"
-                                aria-expanded="false">
-                            {{ task.TAG_CHOICES[task.tag] }}
-                        </button>
-                        <ul class="dropdown-menu" aria-labelledby="tagDropdown{{ task.id }}">
-                            {% for value, label in task.TAG_CHOICES.items() %}
-                            <li>
-                                <form action="{{ url_for('update_tag', task_id=task.id) }}" method="POST" class="dropdown-item-form">
-                                    <button type="submit" class="dropdown-item d-flex align-items-center" name="tag" value="{{ value }}">
-                                        <span class="tag-pill tag-{{ value }} me-2"></span>
-                                        {{ label }}
+                    <div class="d-flex align-items-center">
+                        <div class="dropdown me-2">
+                            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button"
+                                    id="sortDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                                {% if session.get('sort_by') == 'tag' %}
+                                    По статусу
+                                {% elif session.get('sort_by') == 'created_at' and session.get('order') == 'desc' %}
+                                    По дате (убыв.)
+                                {% elif session.get('sort_by') == 'created_at' and session.get('order') == 'asc' %}
+                                    По дате (возр.)
+                                {% elif session.get('sort_by') == 'board_number' and session.get('order') == 'desc' %}
+                                    По борту (убыв.)
+                                {% else %}
+                                    По борту (возр.)
+                                {% endif %}
+                            </button>
+                            <ul class="dropdown-menu" aria-labelledby="sortDropdown">
+                                <li>
+                                    <button class="dropdown-item sort-option" data-sort-by="tag" data-order="asc">По
+                                        статусу (В работе первые)
                                     </button>
-                                </form>
-                            </li>
-                            {% endfor %}
-                        </ul>
+                                </li>
+                                <li>
+                                    <button class="dropdown-item sort-option" data-sort-by="board_number"
+                                            data-order="asc">По бортовому номеру (возрастание)
+                                    </button>
+                                </li>
+                                <li>
+                                    <button class="dropdown-item sort-option" data-sort-by="board_number"
+                                            data-order="desc">По бортовому номеру (убывание)
+                                    </button>
+                                </li>
+                                <li>
+                                    <button class="dropdown-item sort-option" data-sort-by="created_at"
+                                            data-order="asc">По дате создания (возрастание)
+                                    </button>
+                                </li>
+                                <li>
+                                    <button class="dropdown-item sort-option" data-sort-by="created_at"
+                                            data-order="desc">По дате создания (убывание)
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
+                        <a href="{{ url_for('export_tasks', sort_by=session.get('sort_by', 'board_number'), order=session.get('order', 'asc')) }}"
+                           class="btn btn-primary btn-sm me-2">Выгрузить список</a>
                     </div>
+                </div>
+                <div id="indexContractCounters">{% include '_index_contract_counters.html' %}</div>
 
-                    <!-- Дата создания -->
-                    <div class="text-end me-3" style="min-width: 100px;">
-                        <div class="text-muted small">
-                            {{ task.created_at.strftime('%d.%m.%y %H:%M') }}
+                <div class="small text-muted mt-2" id="indexRefreshStatus" role="status" aria-live="polite"></div>
+
+                <!-- Модальное окно для ввода деталей ОЗЧ -->
+                <div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Борт уже в работе</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p><span id="existingBoardNumber"></span> <span id="existingDescription"></span></p>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                            </div>
                         </div>
                     </div>
+                </div>
 
-                    <!-- Кнопка завершения -->
-                    <a href="{{ url_for('complete_task', task_id=task.id) }}"
-                       class="btn btn-success btn-sm">
-                        Завершить
-                    </a>
+                <div class="modal fade" id="ozchModal" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Укажите детали заказа (ОЗЧ)</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                        aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <form id="ozchForm">
+                                    <div class="mb-3">
+                                        <label for="ozchDetails" class="form-label">Что заказываем?</label>
+                                        <textarea class="form-control" id="ozchDetails" name="ozch_details" rows="4"
+                                                  maxlength="500" required></textarea>
+                                    </div>
+                                    <input type="hidden" id="ozchTaskId" name="task_id">
+                                    <input type="hidden" id="ozchTag" name="tag" value="ozch">
+                                    <input type="hidden" name="sort_by"
+                                           value="{{ session.get('sort_by', 'board_number') }}">
+                                    <input type="hidden" name="order" value="{{ session.get('order', 'asc') }}">
+                                </form>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                                <button type="button" id="submitOzch" class="btn btn-primary">Сохранить</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Модальное окно для добавления/редактирования комментария -->
+                <div class="modal fade" id="commentModal" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Добавить/редактировать комментарий</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                        aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <form id="commentForm">
+                                    <div class="mb-3">
+                                        <label for="comment" class="form-label">Комментарий</label>
+                                        <textarea class="form-control" id="comment" name="comment" rows="4"
+                                                  maxlength="500"></textarea>
+                                    </div>
+                                    <input type="hidden" id="commentTaskId" name="task_id">
+                                    <input type="hidden" name="sort_by"
+                                           value="{{ session.get('sort_by', 'board_number') }}">
+                                    <input type="hidden" name="order" value="{{ session.get('order', 'asc') }}">
+                                </form>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                                <button type="button" id="submitComment" class="btn btn-primary">Сохранить</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+
+                <!-- Список задач -->
+                <div class="list-group mt-3" id="taskList">
+                    {% include '_index_tasks.html' %}
                 </div>
             </div>
-        </div>
-        {% endfor %}
-    </div>
-</div>
+
+            <script src="{{ url_for('static', filename='js/index-live.js', v='1') }}"></script>
+            <script>
+                function onTaskClick(selector, handler) {
+                    document.getElementById('taskList').addEventListener('click', function (event) {
+                        const target = event.target.closest(selector);
+                        if (target && this.contains(target)) handler.call(target, event);
+                    });
+                }
+
+                async function indexRequest(url, options = {}) {
+                    const settled = window.indexLiveUpdates?.beginMutation() || (() => {});
+                    try {
+                        if (/^(POST|PUT|PATCH|DELETE)$/i.test(options.method || 'GET')) {
+                            const csrfResponse = await fetch(document.getElementById('indexLiveView').dataset.csrfUrl, {
+                                credentials: 'same-origin', cache: 'no-store', headers: {'Accept': 'application/json'},
+                            });
+                            if (!csrfResponse.ok || csrfResponse.redirected ||
+                                !csrfResponse.headers.get('content-type')?.includes('application/json')) {
+                                throw new Error('Не удалось обновить защитный токен. Проверьте вход в систему.');
+                            }
+                            const data = await csrfResponse.json();
+                            if (typeof data.csrf_token !== 'string' || !data.csrf_token) {
+                                throw new Error('Не получен защитный токен');
+                            }
+                            window.indexLiveUpdates.updateCsrf(data.csrf_token);
+                            const headers = new Headers(options.headers || {});
+                            headers.set('X-CSRFToken', data.csrf_token);
+                            options = {...options, headers};
+                        }
+                        return await fetch(url, options);
+                    } finally {
+                        settled();
+                    }
+                }
+
+                document.addEventListener('DOMContentLoaded', function () {
+                    console.log('DOM loaded, initializing sort dropdown');
+
+                    // Обработчик сортировки
+                    document.querySelectorAll('.sort-option').forEach(button => {
+                        button.addEventListener('click', function () {
+                            const sortBy = this.getAttribute('data-sort-by');
+                            const order = this.getAttribute('data-order');
+                            console.log(`Applying sort: sort_by=${sortBy}, order=${order}`);
+                            const url = new URL(window.location.href);
+                            url.searchParams.set('sort_by', sortBy);
+                            url.searchParams.set('order', order);
+                            window.location.href = url.toString();
+                        });
+                    });
+
+                    // Проверяем, есть ли борт в списке Сетранс.
+                    document.getElementById('addTaskForm')?.addEventListener('submit', function (event) {
+                        event.preventDefault();
+                        const board = this.elements.board_number.value.trim();
+                        indexRequest({{ url_for('check_board')|tojson }}, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({board_number: board}),
+                        })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (!data.exists) {
+                                    this.submit();
+                                    return;
+                                }
+                                document.getElementById('existingBoardNumber').textContent = board;
+                                document.getElementById('existingDescription').textContent = data.description || '';
+                                bootstrap.Modal.getOrCreateInstance(document.getElementById('confirmModal')).show();
+                            })
+                            .catch(() => this.submit());
+                    });
+
+                    // Обработчик для выбора тега
+                    onTaskClick('.tag-option', function () {
+                            const taskId = this.getAttribute('data-task-id');
+                            const tag = this.getAttribute('data-tag');
+                            const form = document.getElementById('ozchForm');
+                            const ozchModal = new bootstrap.Modal(document.getElementById('ozchModal'));
+
+                            if (tag === 'ozch') {
+                                // Устанавливаем task_id в скрытое поле
+                                document.getElementById('ozchTaskId').value = taskId;
+                                ozchModal.show();
+                            } else {
+                                // Отправляем форму напрямую с параметрами сортировки
+                                const tempForm = document.createElement('form');
+                                tempForm.method = 'POST';
+                                tempForm.action = `/update_tag/${taskId}`;
+
+                                const tagInput = document.createElement('input');
+                                tagInput.type = 'hidden';
+                                tagInput.name = 'tag';
+                                tagInput.value = tag;
+                                tempForm.appendChild(tagInput);
+
+                                // ИСПРАВЛЕНИЕ: Берем текущие значения из параметров URL, чтобы не терять их
+                                const urlParams = new URLSearchParams(window.location.search);
+
+                                const sortByInput = document.createElement('input');
+                                sortByInput.type = 'hidden';
+                                sortByInput.name = 'sort_by';
+                                sortByInput.value = urlParams.get('sort_by') || '{{ session.get('sort_by', 'board_number') }}';
+                                tempForm.appendChild(sortByInput);
+
+                                const orderInput = document.createElement('input');
+                                orderInput.type = 'hidden';
+                                orderInput.name = 'order';
+                                orderInput.value = urlParams.get('order') || '{{ session.get('order', 'asc') }}';
+                                tempForm.appendChild(orderInput);
+
+                                document.body.appendChild(tempForm);
+                                tempForm.submit();
+                            }
+                        });
+                    
+
+                    // Обработчик отправки формы ОЗЧ
+                    document.getElementById('submitOzch').addEventListener('click', function () {
+                        const form = document.getElementById('ozchForm');
+                        const taskId = document.getElementById('ozchTaskId').value;
+                        const ozchDetails = document.getElementById('ozchDetails').value.trim();
+
+                        if (!ozchDetails) {
+                            alert('Пожалуйста, укажите детали заказа.');
+                            return;
+                        }
+
+                        // Отправляем форму через AJAX с параметрами сортировки
+                        indexRequest(`/update_tag/${taskId}`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                            },
+                            body: new URLSearchParams({
+                                'tag': 'ozch',
+                                'ozch_details': ozchDetails,
+                                'sort_by': '{{ session.get('sort_by', 'board_number') }}',
+                                'order': '{{ session.get('order', 'asc') }}'
+                            })
+                        })
+                            .then(response => {
+                                if (response.ok) {
+                                    const url = new URL(window.location.href);
+                                    url.searchParams.set('sort_by', '{{ session.get('sort_by', 'board_number') }}');
+                                    url.searchParams.set('order', '{{ session.get('order', 'asc') }}');
+                                    window.location.href = url.toString();
+                                } else {
+                                    alert('Ошибка при сохранении.');
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error:', error);
+                                alert('Ошибка при сохранении.');
+                            });
+
+                        // Закрываем модальное окно
+                        bootstrap.Modal.getInstance(document.getElementById('ozchModal')).hide();
+                    });
+
+                    // Обработчик для открытия модального окна комментария
+                    onTaskClick('.comment-option', function (e) {
+                            e.preventDefault();
+                            const taskId = this.getAttribute('data-task-id');
+                            document.getElementById('commentTaskId').value = taskId;
+
+                            // Загружаем существующий комментарий, если он есть
+                            indexRequest(`/get_comment/${taskId}`, {
+                                method: 'GET',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                }
+                            })
+                                .then(response => response.json())
+                                .then(data => {
+                                    document.getElementById('comment').value = data.comment || '';
+                                    const commentModal = new bootstrap.Modal(document.getElementById('commentModal'));
+                                    commentModal.show();
+                                })
+                                .catch(error => {
+                                    console.error('Error loading comment:', error);
+                                    document.getElementById('comment').value = '';
+                                    const commentModal = new bootstrap.Modal(document.getElementById('commentModal'));
+                                    commentModal.show();
+                                });
+                        });
+                    
+
+                    // Обработчик отправки формы комментария
+                    document.getElementById('submitComment').addEventListener('click', function () {
+                        const taskId = document.getElementById('commentTaskId').value;
+                        const comment = document.getElementById('comment').value.trim();
+
+                        indexRequest(`/add_comment/${taskId}`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            body: new URLSearchParams({
+                                'comment': comment,
+                                'sort_by': '{{ session.get('sort_by', 'board_number') }}',
+                                'order': '{{ session.get('order', 'asc') }}'
+                            })
+                        })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.status === 'success') {
+                                    // Обновляем текст комментария на странице без перезагрузки
+                                    const commentSpan = document.getElementById(`comment-text-${taskId}`);
+                                    if (commentSpan) {
+                                        // Заменяем переносы строк на запятые, как в шаблоне
+                                        commentSpan.textContent = (data.comment || '').replace(/\n/g, ', ');
+                                    }
+
+                                    // Закрываем модальное окно
+                                    bootstrap.Modal.getInstance(document.getElementById('commentModal')).hide();
+                                } else {
+                                    alert(data.error || 'Ошибка при сохранении комментария.');
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error:', error);
+                                alert('Ошибка при сохранении комментария.');
+                            });
+                    });
+
+                });
+                document.addEventListener('DOMContentLoaded', function () {
+                    const textarea = document.getElementById('description');
+                    const form = document.getElementById('addTaskForm');
+
+                    form.addEventListener('submit', function () {
+                        textarea.value = cleanText(textarea.value);
+                    });
+
+                    function cleanText(text) {
+                        if (!text) return '';
+                        return text
+                            .replace(/[ \t]+$/gm, '')   // Убираем пробелы в конце строк
+                            .replace(/\n+$/, '')        // Убираем пустые строки в конце
+                            .replace(/[\s,.;:]+$/, ''); // Убираем знаки препинания в самом конце
+                    }
+                });
+
+                // Обработчик убирает гиперссылку на бортовом номере
+                document.querySelectorAll('.board-link').forEach(link => {
+                    link.addEventListener('copy', function (e) {
+                        e.preventDefault();
+                        const boardNumber = this.getAttribute('data-board-number');
+                        e.clipboardData.setData('text/plain', boardNumber);
+                    });
+                });
+
+                // Обработчик для выбора события (сход/эвакуация/выезд)
+                onTaskClick('.event-option', function (e) {
+                        e.preventDefault();
+
+                        const taskId = this.getAttribute('data-task-id');
+                        const eventValue = this.getAttribute('data-event');
+                        const dropdownButton = document.querySelector(`#eventDropdown${taskId} .event-label`);
+
+                        // Отправка данных на сервер
+                        indexRequest('/update_event_status', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                            },
+                            body: new URLSearchParams({
+                                'task_id': taskId,
+                                'event_type': eventValue
+                            })
+                        })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.success) {
+                                    // Обновляем текст и иконку на кнопке без перезагрузки
+                                    let newContent = '';
+                                    if (eventValue === 'сход') {
+                                        newContent = '<span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle"></i> Сход</span>';
+                                    } else if (eventValue === 'эвакуация') {
+                                        newContent = '<span class="text-warning text-dark fw-bold"><i class="bi bi-truck"></i> Эвакуация</span>';
+                                    } else if (eventValue === 'выезд') {
+                                        newContent = '<span class="text-primary fw-bold"><i class="bi bi-car-front"></i> Выезд</span>';
+                                    } else if (eventValue === 'цех') {
+                                        newContent = '<span class="text-success fw-bold"><i class="bi bi-building-check"></i> Цех</span>';  // ← ИСПРАВЛЕНО
+                                    } else {
+                                        newContent = '<span class="text-muted">Метка</span>';
+                                    }
+                                    dropdownButton.innerHTML = newContent;
+                                } else {
+                                    alert('Ошибка при обновлении статуса: ' + (data.error || 'Неизвестная ошибка'));
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error:', error);
+                                alert('Ошибка при обновлении статуса. Попробуйте еще раз.');
+                            });
+                    });
+                
+            </script>
+
+        {% else %}
+            <div class="container mt-4">
+                <div class="alert alert-danger" role="alert">
+                    У вас нет доступа к этой странице.
+                </div>
+            </div>
+        {% endif %}
     {% endif %}
-<script>
-
-document.getElementById('addTaskForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-
-    const boardNumber = this.elements['board_number'].value.trim();
-    const description = this.elements['description'].value.trim();
-
-    // Проверяем существование борта через AJAX
-    fetch('/check_board', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            board_number: boardNumber
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.exists) {
-            // Показываем модальное окно с существующей записью
-            document.getElementById('existingBoardNumber').textContent = boardNumber;
-            document.getElementById('existingDescription').textContent = data.description;
-
-            const modal = new bootstrap.Modal(document.getElementById('confirmModal'));
-            modal.show();
-
-            // Обработчик подтверждения
-            document.getElementById('confirmAdd').onclick = function() {
-                modal.hide();
-                document.getElementById('addTaskForm').submit();
-            };
-        } else {
-            // Если борт не существует, просто отправляем форму
-            document.getElementById('addTaskForm').submit();
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        document.getElementById('addTaskForm').submit();
-    });
-});
-</script>
-
 {% endblock %}

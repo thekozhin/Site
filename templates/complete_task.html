@@ -3,53 +3,384 @@
 {% block title %}Завершение задачи{% endblock %}
 
 {% block body %}
-<div class="container mt-4">
-    <div class="card">
-        <div class="card-header">
-            <h4>Завершение задачи: Борт №{{ task.board_number }}</h4>
-        </div>
-        <div class="card-body">
-            {% if not show_print_prompt %}
-                <p><strong>Описание проблемы:</strong></p>
-                <p class="text-muted">{{ task.description.replace('\n', ', ') }}</p>
+    {% set displayed_work_in = work_in_value if work_in_value is defined and work_in_value else task.work_in %}
+    {% set incontrol_paused = incontrol_closure_paused(task) %}
+    <div class="container mt-4">
+        <div class="card">
+            <div class="card-body">
+                {% if not show_print_prompt %}
+                    Гаражный номер <strong>{{ task.board_number }}</strong>
+                    {% set mail_request = yandex_request_for(task) %}
+                    {% if mail_request %}
+                        <p class="small text-muted mb-3">Яндекс Почта · заявка №{{ mail_request.ticket_number }}</p>
+                    {% else %}
+                        <br />
+                        <br />
+                    {% endif %}
+                    {% set mail_paused = mail_request and 'yandex_mail' in paused_closure_services() %}
+                    {% if incontrol_paused or mail_paused %}
+                        <p class="small text-muted">После закрытия в списке «К отписке» будет заявка для {{ 'InControl и Яндекс Почты' if incontrol_paused and mail_paused else ('InControl' if incontrol_paused else 'Яндекс Почты') }}.</p>
+                    {% endif %}
+                    <form method="POST" id="completeForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" id="hidden_action" value="{{ 'reject' if incontrol_mode_value|default(request.form.get('main_outcome', 'reject' if request.form.get('action') == 'reject' else 'complete')) == 'reject' else '' }}">
+                        <input type="hidden" name="completion_check_id" value="">
+                        <input type="hidden" name="offline_run_id" value="">
+                        <input type="hidden" name="offline_check_id" value="">
+                        <input type="hidden" name="child_decisions" value="{{ child_decisions_value|default(request.form.get('child_decisions', '')) }}">
+                        <input type="hidden" name="evacuation_photos_confirmed" id="evacuation_confirmed" value="{{ evacuation_confirmed_value|default('') }}">
+                        <input type="hidden" name="seasonal_service" id="seasonal_service" value="{{ seasonal_service_value|default(request.form.get('seasonal_service', '0')) }}">
 
-                <form method="POST">
-                    <div class="mb-3">
-                        <label for="completed_work" class="form-label">Выполненные работы:</label>
-                        <textarea class="form-control" id="completed_work" name="completed_work" rows="3" required></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-success">Подтвердить завершение</button>
-                    <a href="{{ url_for('index') }}" class="btn btn-secondary">Отмена</a>
-                </form>
-            {% else %}
-                <div class="alert alert-success">
-                    <h5>Задача успешно завершена!</h5>
-                    <p>Хотите распечатать заявку?</p>
-                    <form method="POST" onsubmit="setTimeout(function(){ window.location='{{ url_for('index') }}'; }, 1000);">
-                        <input type="hidden" name="print_decision" value="yes">
-                        <button type="submit" class="btn btn-primary me-2">Да, печатать</button>
-                        <a href="{{ url_for('index') }}" class="btn btn-secondary">Нет, спасибо</a>
+                        {% set main_mode = incontrol_mode_value|default(request.form.get('main_outcome', 'reject' if request.form.get('action') == 'reject' else ('complete' if request.method == 'POST' else ''))) %}
+                        <fieldset id="closingOutcomeSelector" class="mb-3 d-flex flex-wrap align-items-center gap-2">
+{#                            <legend class="fs-6 fw-semibold">Результат основной заявки</legend>#}
+                            <div class="btn-group btn-group-sm" role="group">
+                                <input class="btn-check" type="radio" name="main_outcome" id="mainComplete-{{ task.id }}" value="complete" autocomplete="off" {{ 'checked' if main_mode == 'complete' else '' }}>
+                                <label class="btn btn-outline-success" for="mainComplete-{{ task.id }}">Выполнено</label>
+                                <input class="btn-check" type="radio" name="main_outcome" id="mainReject-{{ task.id }}" value="reject" autocomplete="off" {{ 'checked' if main_mode == 'reject' else '' }}>
+                                <label class="btn btn-outline-danger" for="mainReject-{{ task.id }}">Отклонено</label>
+                            </div>
+                            <small id="incontrolEmptyNotice" class="text-success" role="status" hidden></small>
+                        </fieldset>
+
+                        <div id="closingDetails" {{ 'hidden' if not main_mode else '' }}>
+                        <div id="closureDescription">
+                            <p><strong>Описание заявки:</strong></p>
+                            <p class="text-muted">{{ task.description.replace('\n', ', ') }}</p>
+                        </div>
+                    {% if task.id_to or task.tag == 'to' %}
+                        <div class="alert alert-warning" role="alert">
+                            Это заявка на ТО. Если ТО не выполнено, нажмите «Отклонить»; дополнительные работы не закрывают ТО.
+                        </div>
+                    {% endif %}
+
+                        <div id="incontrolChildPlan" class="mb-3" aria-live="polite" hidden></div>
+                        <div class="mb-3">
+                            <label for="completed_work" class="form-label">Выполненные работы:</label>
+                            <textarea class="form-control" id="completed_work" name="completed_work" rows="3"
+                                      required>{{ completed_work_value if completed_work_value else '' }}</textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="mileage" class="form-label">Пробег (км):</label>
+                            <input type="number" class="form-control" id="mileage" name="mileage"
+                                   value="{{ mileage_value if mileage_value is defined else current_mileage }}" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <div class="row align-items-center">
+                                <div class="col-auto">
+                                    <label for="work_in_date-{{ task.id }}" class="form-label">Дата начала работ:</label>
+                                    <input type="date" class="form-control w-auto" id="work_in_date-{{ task.id }}"
+                                           value="{{ format_datetime(displayed_work_in, '%Y-%m-%d') if displayed_work_in else '' }}"
+                                           min="{{ format_datetime(task.created_at, '%Y-%m-%d') if task.created_at else '' }}">
+                                </div>
+                                <div class="col-auto">
+                                    <label for="work_in_time-{{ task.id }}" class="form-label">Время начала работ:</label>
+                                    <input type="text" class="form-control w-auto" id="work_in_time-{{ task.id }}"
+                                           value="{{ format_datetime(displayed_work_in, '%H:%M') if displayed_work_in else '' }}"
+                                           placeholder="ЧЧ:ММ"
+                                           inputmode="numeric"
+                                           maxlength="5"
+                                           autocomplete="off">
+                                    <input type="hidden" id="work_in-{{ task.id }}" name="work_in"
+                                           value="{{ format_datetime(displayed_work_in, '%Y-%m-%dT%H:%M') if displayed_work_in else '' }}">
+                                </div>
+                                <div class="col-auto">
+                                    <label for="created_at_date-{{ task.id }}" class="form-label">Дата\время подачи
+                                        заявки:</label>
+                                    <input type="text" class="form-control w-auto" id="created_at_date-{{ task.id }}"
+                                           value="{{ format_datetime(task.created_at, '%d.%m.%Y %H:%M') if task.created_at else '' }}"
+                                           readonly disabled>
+                                </div>
+                            </div>
+                        </div>
+
+                        {% if incontrol_rejection_enabled and uses_inline_incontrol(task) %}
+                        <p class="small text-muted" id="incontrolSignatureHint">При закрытии автоматически проверим и подпишем документы InControl под вашим личным аккаунтом. Если InControl запросит код, введите его здесь.</p>
+                        {% endif %}
+
+
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <button type="submit" class="btn btn-success" id="confirmCompleteBtn">
+                                <span class="spinner-border spinner-border-sm me-1" id="completionCheckSpinner" hidden aria-hidden="true"></span>
+                                Завершить
+                            </button>
+                            <button type="submit" name="action" value="reject" class="btn btn-danger">Отклонить</button>
+                            <span class="text-muted small" id="completionCheckMessage" role="status" aria-live="polite" hidden></span>
+                        </div>
+
+                        <div id="incontrolOfflineOffer" class="alert alert-warning mt-3 mb-0" hidden>
+                            <p class="mb-2">InControl недоступен. После закрытия заявка попадёт в список на отписку.</p>
+                            <button id="incontrolOfflineClose" class="btn btn-sm btn-outline-dark" type="button">Закрыть в Сетранс без InControl</button>
+                        </div>
+
+                        <div id="inlineIncontrol" class="mt-3" hidden>
+                            <div id="inlineIncontrolError" class="alert alert-warning" role="alert" hidden></div>
+                            <div id="inlineIncontrolCodePanel" hidden>
+                                <label for="inlineIncontrolCode" class="form-label">Код подписи из рабочей почты</label>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <input id="inlineIncontrolCode" class="form-control" style="max-width:180px" inputmode="numeric" autocomplete="one-time-code" maxlength="4" pattern="[0-9]{4}" aria-label="Код подписи из рабочей почты">
+                                    <button id="inlineIncontrolContinue" class="btn btn-primary" type="button">Продолжить закрытие</button>
+                                    <button id="inlineIncontrolResend" class="btn btn-outline-secondary" type="button">Запросить код повторно</button>
+                                </div>
+                            </div>
+                            <button id="inlineIncontrolRetry" class="btn btn-outline-primary mt-2" type="button" hidden>Проверить состояние и продолжить</button>
+                        </div>
+
+{#                        <div class="modal fade" id="closeConfirmModal" tabindex="-1" aria-hidden="true">#}
+{#                            <div class="modal-dialog modal-dialog-centered">#}
+{#                                <div class="modal-content">#}
+{#                                    <div class="modal-header"><h5 class="modal-title">Подтверждение</h5></div>#}
+{#                                    <div class="modal-body">Заявка отписана в почте или InControl?</div>#}
+{#                                    <div class="modal-footer">#}
+{#                                        <button type="button" class="btn btn-success" id="modalConfirmYes">Да</button>#}
+{#                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Нет#}
+{#                                        </button>#}
+{#                                    </div>#}
+{#                                </div>#}
+{#                            </div>#}
+{#                        </div>#}
+
+                        {% if (task.id_to or task.tag == 'to') and task.description and 'СО' in task.description %}
+                        <div class="modal fade" id="seasonalServiceModal" tabindex="-1" aria-hidden="true">
+                            <div class="modal-dialog modal-dialog-centered">
+                                <div class="modal-content">
+                                    <div class="modal-header"><h5 class="modal-title">Сезонное обслуживание</h5></div>
+                                    <div class="modal-body">Сезонное обслуживание проведено?</div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-success" id="seasonalServiceYes">Да</button>
+                                        <button type="button" class="btn btn-secondary" id="seasonalServiceNo">Нет</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        {% if is_evacuation %}
+                            <div class="modal fade" id="evacuationPhotoModal" tabindex="-1" aria-hidden="true">
+                                <div class="modal-dialog modal-dialog-centered">
+                                    <div class="modal-content">
+                                        <div class="modal-header"><h5 class="modal-title">⚠️Фотоматериал
+                                            эвакуации⚠️</h5></div>
+                                        <div class="modal-body">Фотографии сделаны для закрытия эвакуации?</div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-success" id="evacuationPhotoYes">Да
+                                            </button>
+                                            <button type="button" class="btn btn-outline-secondary"
+                                                    data-bs-dismiss="modal">Нет
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+                        </div>
                     </form>
-                </div>
-            {% endif %}
+                {% else %}
+                    <div class="alert alert-success text-center">
+                        <form method="POST" action="{{ url_for('print_task', task_id=task.id) }}" target="_blank">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <div class="d-flex gap-2 justify-content-center">
+                                <button type="submit"
+                                        class="btn btn-primary"
+                                        onclick="setTimeout(function(){ window.location.href = '{{ url_for('index') }}'; }, 500);">
+                                    <i class="bi bi-printer"></i> Да, печатать
+                                </button>
+                                <a href="{{ url_for('index') }}" class="btn btn-secondary">Нет, в список</a>
+                            </div>
+                        </form>
+                    </div>
+                {% endif %}
+            </div>
         </div>
     </div>
-</div>
 
-<script>
-document.getElementById('completed_work').addEventListener('input', function() {
-    const lines = this.value.split('\n');
-    if (lines.length > 5) {
-        this.value = lines.slice(0, 5).join('\n');
-        alert('Максимум 5 строк в описании работ');
-    }
+    <script src="{{ url_for('static', filename='js/completion-check.js', v='offline-3') }}"></script>
+    <script src="{{ url_for('static', filename='js/incontrol-plan.js', v='confirm-incontrol-match') }}"></script>
+    <script src="{{ url_for('static', filename='js/incontrol-inline.js', v='offline-11') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const form = document.getElementById('completeForm');
+            if (!form) return;
+            const completionCheck = new ({{ 'InlineIncontrolController' if not incontrol_paused and incontrol_rejection_enabled and uses_inline_incontrol(task) else 'CompletionCheckController' }})(form, {
+                planUrl: {{ url_for('start_incontrol_plan', task_id=task.id)|tojson }},
+                required: {{ requires_completion_check(task)|tojson }},
+                startUrl: {{ url_for('start_completion_check', task_id=task.id)|tojson }},
+                resumeId: {{ request.args.get('rejection_run', '')|tojson }},
+                statusPattern: {{ url_for('incontrol_rejection_status', run_id='RUN')|tojson }},
+                actionPattern: {{ url_for('incontrol_rejection_action', run_id='RUN')|tojson }},
+            });
+            if (!completionCheck.plan) {
+                const details=document.getElementById('closingDetails');
+                const confirm=document.getElementById('confirmCompleteBtn');
+                const reject=form.querySelector('button[value="reject"]');
+                const refreshChoice=()=>{
+                    const mode=form.querySelector('input[name="main_outcome"]:checked')?.value;
+                    details.hidden=!mode;confirm.disabled=!mode;reject.hidden=true;
+                    form.querySelector('label[for="completed_work"]').textContent=mode==='reject'?'Причина отклонения:':'Выполненные работы:';
+                    document.getElementById('hidden_action').value=mode==='reject'?'reject':'';
+                };
+                form.querySelectorAll('input[name="main_outcome"]').forEach(input=>input.addEventListener('change',refreshChoice));
+                refreshChoice();
+            }
+            const workInInput = document.getElementById('work_in-{{ task.id }}');
+            const workInDateInput = document.getElementById('work_in_date-{{ task.id }}');
+            const workInTimeInput = document.getElementById('work_in_time-{{ task.id }}');
+            const rejectBtn = document.querySelector('button[value="reject"]');
+            const completedWorkInput = document.getElementById('completed_work');
+            const confirmCompleteBtn = document.getElementById('confirmCompleteBtn');
+            const hiddenActionInput = document.getElementById('hidden_action');
+            {#const confirmModalEl = document.getElementById('closeConfirmModal');#}
+            const evacModalEl = document.getElementById('evacuationPhotoModal');
+            const seasonalServiceModalEl = document.getElementById('seasonalServiceModal');
+            {#const confirmModal = new bootstrap.Modal(confirmModalEl);#}
+            const evacModal = evacModalEl ? new bootstrap.Modal(evacModalEl) : null;
+            const seasonalServiceModal = seasonalServiceModalEl ? new bootstrap.Modal(seasonalServiceModalEl) : null;
+            const seasonalServiceHidden = document.getElementById('seasonal_service');
+            const isEvacuation = {{ 'true' if is_evacuation else 'false' }};
+            const isSeasonalServiceTask = {{ 'true' if (task.id_to or task.tag == 'to') and task.description and 'СО' in task.description else 'false' }};
+            const createdAtString = "{{ format_datetime(task.created_at, '%Y-%m-%dT%H:%M') if task.created_at else '' }}";
 
-        // Проверка длины строк
-    const newLines = lines.map(line => line.slice(0, 60));
-    if (newLines.some((line, i) => line.length !== lines[i].length)) {
-        this.value = newLines.join('\n');
-        alert('....Пушкин! тормози');
-    }
-});
-</script>
+            // 1. Блокировка запрещенных фраз
+            const restrictedPhrases = ["борт на линии", "на линии", "не предоставлен", "не подан", "линия", "убыл на линию"];
+
+            function checkRestriction() {
+                if (!completedWorkInput) return;
+                if (completionCheck.plan) {completionCheck.plan.update();return;}
+                if (form.querySelector('input[name="main_outcome"]:checked')?.value==='reject') {confirmCompleteBtn.disabled=!completedWorkInput.value.trim();return;}
+                const text = completedWorkInput.value.toLowerCase();
+                const isRestricted = restrictedPhrases.some(phrase => text.includes(phrase));
+                if (confirmCompleteBtn) {
+                    confirmCompleteBtn.disabled = isRestricted;
+                    confirmCompleteBtn.classList.toggle('disabled', isRestricted);
+                }
+            }
+
+            if (completedWorkInput) completedWorkInput.addEventListener('input', checkRestriction);
+
+            function formatTimeInput() {
+                if (!workInTimeInput) return '';
+                const digits = workInTimeInput.value.replace(/\D/g, '').slice(0, 4);
+                let hours = digits.slice(0, 2);
+                let minutes = digits.slice(2);
+
+                if (hours.length === 2 && Number(hours) > 23) hours = '23';
+                if (minutes.length === 2 && Number(minutes) > 59) minutes = '59';
+
+                workInTimeInput.value = digits.length > 2 ? `${hours}:${minutes}` : hours;
+                return workInTimeInput.value;
+            }
+
+            function updateWorkInInput() {
+                if (!workInInput || !workInDateInput || !workInTimeInput) return '';
+                const dateValue = workInDateInput.value.trim();
+                const timeValue = formatTimeInput().trim();
+                workInInput.value = dateValue && timeValue ? `${dateValue}T${timeValue}` : '';
+                return workInInput.value;
+            }
+
+            function isValidTime(value) {
+                return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+            }
+
+            if (workInTimeInput) workInTimeInput.addEventListener('input', formatTimeInput);
+            if (workInDateInput) {
+                workInDateInput.addEventListener('change', function () {
+                    if (!createdAtString || !workInDateInput.value) return;
+                    const createdDate = createdAtString.slice(0, 10);
+                    if (workInDateInput.value < createdDate) {
+                        workInDateInput.value = createdDate;
+                    }
+                });
+            }
+
+            // 2. Логика формы
+            if (rejectBtn) {
+                rejectBtn.addEventListener('click', function () {
+                    const now = new Date();
+                    const tzOffset = now.getTimezoneOffset() * 60000;
+                    const localNow = new Date(now - tzOffset).toISOString();
+                    if (workInDateInput) workInDateInput.value = localNow.slice(0, 10);
+                    if (workInTimeInput) workInTimeInput.value = localNow.slice(11, 16);
+                    updateWorkInInput();
+                    hiddenActionInput.value = 'reject';
+                });
+            }
+
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+                if (completionCheck.busy || completionCheck.submitting) return;
+                const decisionMode = completionCheck.plan?.prepare() ?? form.querySelector('input[name="main_outcome"]:checked')?.value;
+                if (decisionMode === false || !decisionMode) return;
+                hiddenActionInput.value = decisionMode ? (decisionMode === 'reject' ? 'reject' : '') : (e.submitter === rejectBtn ? 'reject' : '');
+
+                if (hiddenActionInput.value !== 'reject') {
+                    const workInValueString = updateWorkInInput();
+                    if (!workInDateInput.value || !workInTimeInput.value) {
+                        alert('Укажите время!');
+                        return;
+                    }
+                    if (!isValidTime(workInTimeInput.value.trim())) {
+                        alert('Введите 4 цифры времени в формате ЧЧ:ММ!');
+                        return;
+                    }
+                    if (createdAtString && new Date(workInValueString) < new Date(createdAtString)) {
+                        updateWorkInInput();
+                        completionCheck.submit();
+                        return;
+                    }
+                }
+
+                // Если это задача TO - сначала показываем модалку сезонного обслуживания
+                if (isSeasonalServiceTask && seasonalServiceModal && hiddenActionInput.value !== 'reject') {
+                    seasonalServiceModal.show();
+                } else if (isEvacuation && document.getElementById('evacuation_confirmed').value !== 'true') {
+                    evacModal.show();
+                } else {
+                        updateWorkInInput();
+                        completionCheck.submit();
+                }
+            });
+
+            // Обработка кнопок модалки сезонного обслуживания
+            document.getElementById('seasonalServiceYes')?.addEventListener('click', function () {
+                seasonalServiceHidden.value = '1';
+                seasonalServiceModal.hide();
+                // После закрытия модалки TO, показываем следующую
+                if (isEvacuation && document.getElementById('evacuation_confirmed').value !== 'true') {
+                    evacModal.show();
+                } else {
+                        updateWorkInInput();
+                        completionCheck.submit();
+                }
+            });
+
+            document.getElementById('seasonalServiceNo')?.addEventListener('click', function () {
+                seasonalServiceHidden.value = '0';
+                seasonalServiceModal.hide();
+                // После закрытия модалки TO, показываем следующую
+                if (isEvacuation && document.getElementById('evacuation_confirmed').value !== 'true') {
+                    evacModal.show();
+                } else {
+                        updateWorkInInput();
+                        completionCheck.submit();
+                }
+            });
+
+            // 3. Обработка кнопок эвакуации
+            document.getElementById('evacuationPhotoYes')?.addEventListener('click', function () {
+                document.getElementById('evacuation_confirmed').value = 'true';
+                evacModal.hide();
+            });
+
+            // Событие скрытия эвакуации: открываем финальную модалку
+            evacModalEl?.addEventListener('hidden.bs.modal', function () {
+                if (document.getElementById('evacuation_confirmed').value === 'true') {
+                    updateWorkInInput();
+                    completionCheck.submit();
+                }
+            });
+        });
+    </script>
 {% endblock %}

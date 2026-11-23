@@ -3,166 +3,251 @@
 {% block title %}Итоговый отчет 19-00{% endblock %}
 
 {% block body %}
-<div class="container mt-4">
-    <div class="card mt-4">
+<div class="container mt-3">
+    <div class="card mt-3">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <h5>Отчет в ИТР на 19-00</h5>
+            <h5>Отчет в ИТР на 19-00 - {{ park_display_name }}</h5>
             <div>
-                <button id="save_19" class="btn btn-primary">
-                    <i class="bi bi-save"></i> Заполнить на 19-00
+                <button id="copy_report" class="btn btn-primary btn-sm">
+                    <i class="bi bi-clipboard"></i> Копировать
                 </button>
             </div>
         </div>
         <div class="card-body">
-            <table class="table table-bordered" id="reportTable">
-                <thead class="table-light">
-                    <tr>
-                        <th>7:00
-                            <span class="badge bg-secondary">
-                                {% if fleet_size_mgt0105_21 and report_7_count %}
-                                    {{ ((fleet_size_mgt0105_21 - report_7_count) / fleet_size_mgt0105_21 * 100)|round(1) }}%
-                                {% else %}
-                                    0%
-                                {% endif %}
-                            </span>
-                        </th>
-                        <th>8:30
-                            <span class="badge bg-secondary">
-                                {% if fleet_size_mgt0105_21 and report_830_count %}
-                                    {{ ((fleet_size_mgt0105_21 - report_830_count) / fleet_size_mgt0105_21 * 100)|round(1) }}%
-                                {% else %}
-                                    0%
-                                {% endif %}
-                            </span>
-                        </th>
-                        <th>17:00
-                            <span class="badge bg-secondary">
-                                {% if fleet_size_mgt0105_21 and report_17_count %}
-                                    {{ ((fleet_size_mgt0105_21 - report_17_count) / fleet_size_mgt0105_21 * 100)|round(1) }}%
-                                {% else %}
-                                    0%
-                                {% endif %}
-                            </span>
-                        </th>
-                        <th>19:00
-                            <span class="badge bg-secondary">
-                                {% if fleet_size_mgt0105_21 and report_19_count %}
-                                    {{ ((fleet_size_mgt0105_21 - report_19_count) / fleet_size_mgt0105_21 * 100)|round(1) }}%
-                                {% else %}
-                                    0%
-                                {% endif %}
-                            </span>
-                        </th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in table_data %}
-                    <tr data-id="{{ row.id }}">
-                        <td class="editable" data-column="col1">{{ row.col1 }}</td>
-                        <td class="editable" data-column="col2">{{ row.col2 }}</td>
-                        <td class="editable" data-column="col3">{{ row.col3 }}</td>
-                        <td class="editable" data-column="col4">{{ row.col4 }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <!-- 7-15 (8:00) Section -->
+            <div class="section-header">7-15 (8:00):</div>
+            {% if report_7_data %}
+                {% for item in report_7_data %}
+                    <div class="report-item">
+                        {% if selected_park in ['1 парк', '14 парк'] %}
+                            {{ item.col1 }}
+                        {% elif selected_park in ['Красная Пахра', '18 парк'] %}
+                            {{ item.col1 }} - {{ item.description|replace('\n', '; ') }}
+                        {% else %}
+                            {{ item.col1 }} - {{ item.description }}
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="report-item">Нет данных</div>
+            {% endif %}
+
+            <!-- 8-30 Section -->
+            <div class="section-header">8-30:</div>
+            {% if report_830_data %}
+                {% for item in report_830_data %}
+                    <div class="report-item">
+                        {% if selected_park in ['1 парк', '14 парк'] %}
+                            {{ item.col1 }}
+                        {% elif selected_park in ['Красная Пахра', '18 парк'] %}
+                            {{ item.col1 }} - {{ item.description|replace('\n', '; ') }}
+                        {% else %}
+                            {{ item.col1 }} - {{ item.description }}
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="report-item">Нет данных</div>
+            {% endif %}
+
+            <!-- 17-00 Section -->
+            <div class="section-header">17-00:</div>
+            {% if report_17_data %}
+                {% for item in report_17_data %}
+                    <div class="report-item">
+                        {% if selected_park in ['1 парк', '14 парк'] %}
+                            {{ item.col1 }}
+                        {% elif selected_park in ['Красная Пахра', '18 парк'] %}
+                            {{ item.col1 }} - {{ item.description|replace('\n', '; ') }}
+                        {% else %}
+                            {{ item.col1 }} - {{ item.description }}
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="report-item">Нет данных</div>
+            {% endif %}
+
+            <!-- 19-00 Section -->
+            <div class="section-header">19-00:</div>
+            {% if report_19_data %}
+                {% for item in report_19_data %}
+                    <div class="report-item">
+                        {% if selected_park in ['1 парк', '14 парк'] %}
+                            {{ item.col1 }}
+                        {% elif selected_park in ['Красная Пахра', '18 парк'] %}
+                            {{ item.col1 }} - {{ item.description|replace('\n', '; ') }}
+                        {% else %}
+                            {{ item.col1 }} - {{ item.description }}
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            {% else %}x
+                <div class="report-item">Нет данных</div>
+            {% endif %}
         </div>
     </div>
 </div>
 
 <script>
-document.getElementById('save_19').addEventListener('click', async function() {
-    try {
-        const response = await fetch('/save_19', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({})
-        });
+// Wait for DOM to load
+document.addEventListener('DOMContentLoaded', function() {
+    // Prepare report data for copying
+    const reportData = {
+        park: {{ park_display_name | tojson }},
+        date: {{ date | tojson }},
+        report_7_data: [
+            {% if report_7_data %}
+                {% for item in report_7_data %}
+                    { col1: {{ item.col1 | tojson }}, description: {{ item.description | tojson }} }{% if not loop.last %},{% endif %}
+                {% endfor %}
+            {% endif %}
+        ],
+        report_830_data: [
+            {% if report_830_data %}
+                {% for item in report_830_data %}
+                    { col1: {{ item.col1 | tojson }}, description: {{ item.description | tojson }} }{% if not loop.last %},{% endif %}
+                {% endfor %}
+            {% endif %}
+        ],
+        report_17_data: [
+            {% if report_17_data %}
+                {% for item in report_17_data %}
+                    { col1: {{ item.col1 | tojson }}, description: {{ item.description | tojson }} }{% if not loop.last %},{% endif %}
+                {% endfor %}
+            {% endif %}
+        ],
+        report_19_data: [
+            {% if report_19_data %}
+                {% for item in report_19_data %}
+                    { col1: {{ item.col1 | tojson }}, description: {{ item.description | tojson }} }{% if not loop.last %},{% endif %}
+                {% endfor %}
+            {% endif %}
+        ],
+        selected_park: {{ selected_park | tojson }}
+    };
 
-        const result = await response.json();
+    // Function to format report text
+function formatReportText(data) {
+    const lines = [`Отчет в ИТР на 19-00 - ${data.park}`, `Дата: ${data.date}`, ''];
 
-        if (result.status === 'success') {
-            const btn = this;
-            btn.innerHTML = '<i class="bi bi-check2"></i> Сохранено!';
-            setTimeout(() => {
-                btn.innerHTML = '<i class="bi bi-save"></i> Заполнить на 19-00';
-                location.reload();
-            }, 2000);
+    const sections = [
+        { title: '7-15 (8:00):', data: data.report_7_data },
+        { title: '8-30:', data: data.report_830_data },
+        { title: '17-00:', data: data.report_17_data },
+        { title: '19-00:', data: data.report_19_data }
+    ];
+
+    sections.forEach(section => {
+        lines.push(section.title);
+        if (section.data && section.data.length > 0) {
+            section.data.forEach(item => {
+                let desc = item.description ? item.description.replace(/\n/g, ' ') : '';
+                if (data.selected_park === '1 парк' || data.selected_park === '14 парк') {
+                    lines.push(item.col1);
+                } else {
+                    lines.push(`${item.col1} - ${desc}`);
+                }
+            });
         } else {
-            alert('Ошибка: ' + result.message);
+            lines.push('Нет данных');
         }
-    } catch (error) {
-        console.error('Ошибка:', error);
+        lines.push('');
+    });
+
+    return lines.join('\n').trim();
+}
+
+
+    // Fallback copy function for non-secure contexts
+    function fallbackCopyText(text) {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            return true;
+        } catch (err) {
+            console.error('Fallback copy failed:', err);
+            return false;
+        } finally {
+            document.body.removeChild(textArea);
+        }
+    }
+
+    // Copy button event listener
+    const copyButton = document.getElementById('copy_report');
+    if (copyButton) {
+        copyButton.addEventListener('click', function() {
+            try {
+                const reportText = formatReportText(reportData);
+                if (navigator.clipboard && window.isSecureContext) {
+                    navigator.clipboard.writeText(reportText).then(() => {
+                        copyButton.innerHTML = '<i class="bi bi-clipboard-check"></i> Скопировано!';
+                        setTimeout(() => {
+                            copyButton.innerHTML = '<i class="bi bi-clipboard"></i> Копировать';
+                        }, 2000);
+                    }).catch(err => {
+                        if (fallbackCopyText(reportText)) {
+                            copyButton.innerHTML = '<i class="bi bi-clipboard-check"></i> Скопировано!';
+                            setTimeout(() => {
+                                copyButton.innerHTML = '<i class="bi bi-clipboard"></i> Копировать';
+                            }, 2000);
+                        } else {
+                            alert('Ошибка при копировании текста');
+                        }
+                    });
+                } else {
+                    if (fallbackCopyText(reportText)) {
+                        copyButton.innerHTML = '<i class="bi bi-clipboard-check"></i> Скопировано!';
+                        setTimeout(() => {
+                            copyButton.innerHTML = '<i class="bi bi-clipboard"></i> Копировать';
+                        }, 2000);
+                    } else {
+                        alert('Ошибка при копировании текста');
+                    }
+                }
+            } catch (err) {
+                alert('Ошибка при копировании текста');
+            }
+        });
     }
 });
-
-{#// Функция для редактирования ячеек#}
-{#document.querySelectorAll('.editable').forEach(cell => {#}
-{#    cell.addEventListener('click', function() {#}
-{#        const currentValue = this.textContent.trim();#}
-{#        const input = document.createElement('input');#}
-{#        input.type = 'text';#}
-{#        input.value = currentValue;#}
-{#        input.className = 'form-control form-control-sm';#}
-{##}
-{#        this.innerHTML = '';#}
-{#        this.appendChild(input);#}
-{#        input.focus();#}
-{##}
-{#        input.addEventListener('blur', async function() {#}
-{#            const newValue = this.value.trim();#}
-{#            const parentCell = this.parentElement;#}
-{#            parentCell.textContent = newValue;#}
-{##}
-{#            // Отправка изменений на сервер#}
-{#            const rowId = parentCell.parentElement.getAttribute('data-id');#}
-{#            const column = parentCell.getAttribute('data-column');#}
-{##}
-{#            try {#}
-{#                const response = await fetch('/update_cell', {#}
-{#                    method: 'POST',#}
-{#                    headers: {#}
-{#                        'Content-Type': 'application/json',#}
-{#                    },#}
-{#                    body: JSON.stringify({#}
-{#                        id: rowId,#}
-{#                        column: column,#}
-{#                        value: newValue#}
-{#                    })#}
-{#                });#}
-{##}
-{#                const result = await response.json();#}
-{#                if (result.status !== 'success') {#}
-{#                    alert('Ошибка сохранения: ' + result.message);#}
-{#                }#}
-{#            } catch (error) {#}
-{#                console.error('Ошибка:', error);#}
-{#            }#}
-{#        });#}
-{##}
-{#        input.addEventListener('keypress', function(e) {#}
-{#            if (e.key === 'Enter') {#}
-{#                this.blur();#}
-{#            }#}
-{#        });#}
-{#    });#}
-{#});#}
 </script>
 
+
 <style>
-.editable {
-    cursor: pointer;
-    transition: background-color 0.2s;
+.section-header {
+    font-weight: bold;
+    font-size: 1.1em;
+    margin: 10px 0 5px;
 }
-.editable:hover {
-    background-color: #f8f9fa;
+.report-item {
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 0.85rem;
+    margin-bottom: 4px;
+    line-height: 1.2;
+    white-space: {% if selected_park in ['1 парк', '14 парк', 'Красная Пахра', '18 парк'] %}normal{% else %}pre-wrap{% endif %};
+    color: #333;
+    width: 100%;
+    margin-left: 0;
+    padding-left: 0;
 }
-.badge {
-    font-size: 0.75rem;
-    margin-left: 5px;
-    vertical-align: middle;
+.card-body {
+    padding: 1rem;
 }
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+}
+</style>
+<style>
+    body {
+    -webkit-user-select: none; /* для Chrome, Safari */
+    -moz-user-select: none;    /* для Firefox */
+    -ms-user-select: none;     /* для IE/Edge */
+    user-select: none;         /* стандарт */
+    }
 </style>
 {% endblock %}

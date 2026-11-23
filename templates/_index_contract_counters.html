@@ -1,0 +1,74 @@
+{% if selected_park in ['1 парк','Красная Пахра','14 парк','18 парк'] %}
+                    <div class="mt-2">
+                        <div class="border rounded px-2 py-1 d-inline-flex align-items-center flex-wrap"
+                             style="background:#f8f9fa; font-size:12px; width: fit-content;">
+
+                            <span class="me-1">
+                                <span class="contract-badge badge-2" title="">2</span>
+                                <strong>216644</strong> - {{ contract_2_total }} ед.
+                            </span>
+
+                            <div class="border-start ms-1 ps-1">
+                                <span class="me-1">
+                                    <span class="contract-badge badge-3" title="">6</span>
+                                    <strong>222150</strong> - {{ contract_6_total }} ед.
+                                </span>
+                            </div>
+
+                            <div class="border-start ms-1 ps-1">
+                                <span class="me-1">
+                                    <span class="contract-badge badge-1" title="">8</span>
+                                    <strong>МГТ0105-21</strong> - {{ contract_8_total }} ед.
+                                </span>
+                            </div>
+
+                            {% if selected_park == 'Красная Пахра' %}
+                                <div class="border-start ms-1 ps-1">
+                                <span class="me-1">
+                                    <span class="contract-badge badge-6" title="">7</span>
+                                    <strong>МГТ0107-21</strong> - {{ contract_7_total }} ед.
+                                </span>
+                                </div>
+
+                            {% endif %}
+
+                            {% if selected_park == '14 парк' %}
+                                <div class="border-start ms-1 ps-1">
+                                <span class="me-1">
+                                    <span class="contract-badge badge-7" title="">12</span>
+                                    <strong>МГТ0223-25</strong> - {{ contract_12_total }} ед.
+                                </span>
+                                </div>
+                            {% endif %}
+
+                            {% if selected_park in ['1 парк','Красная Пахра'] %}
+                                <div class="border-start ms-1 ps-1">
+                                <span class="me-1">
+                                    <span class="contract-badge badge-4" title="">9</span>
+                                    <strong>МГТ234953-23</strong> - {{ contract_9_total }} ед.
+                                </span>
+                                </div>
+
+                                <div class="border-start ms-1 ps-1">
+                                <span class="me-1">
+                                    <span class="contract-badge badge-5" title="">11</span>
+                                    <strong>МГТ0019-25</strong> - {{ contract_11_total }} ед.
+                                </span>
+                                </div>
+                            {% endif %}
+
+                            {% if selected_park == '1 парк' %}
+                                <div class="border-start ms-1 ps-1">
+                                <span class="me-1">
+                                    <span class="contract-badge badge-8" title="">15</span>
+                                    <strong>МГТ0084-25</strong> - {{ contract_13_total }} ед.
+                                </span>
+                                </div>
+
+                                <span class="me-3">
+
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endif %}

@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+{% block title %}СО{% endblock %}
+{% block body %}
+{% if current_user.is_authenticated %}
+    {% if current_user.company == 'Сетранс' %}
+<div class="container mt-4">
+<div class="d-flex justify-content-between align-items-center">
+    <h4 class="mb-0">Сезонное обслуживание</h4>
+    <button class="btn btn-primary btn-sm" onclick="downloadList()">Выгрузить список</button>
+</div>
+    {% if vehicles %}
+    <table class="table table-bordered table-sm">
+        <thead>
+            <tr>
+                <th>Номер борта</th>
+                <th>СО</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for vehicle in vehicles %}
+            <tr class="{{ 'table-success' if vehicle.status == 'пройдено' else '' }}">
+                <td>{{ vehicle.bort }}</td>
+                <td>
+                    <select class="form-select form-select-sm" onchange="updateServiceStatus('{{ vehicle.bort }}', this.value, '{{ vehicle.type_ts }}', this)">
+                        <option value="не пройдено" {% if vehicle.status == 'не пройдено' %}selected{% endif %}>не пройдено</option>
+                        <option value="пройдено" {% if vehicle.status == 'пройдено' %}selected{% endif %}>пройдено</option>
+                    </select>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>Нет бортов для выбранного парка.</p>
+    {% endif %}
+</div>
+
+<script>
+function updateServiceStatus(bort, status, type_ts, selectElement) {
+    fetch('/update_service_status', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ bort, status, type_ts })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Update row color based on new status
+            const row = selectElement.closest('tr');
+            if (status === 'пройдено') {
+                row.classList.add('table-success');
+            } else {
+                row.classList.remove('table-success');
+            }
+        } else {
+            alert(data.error || 'Ошибка обновления статуса');
+        }
+    })
+    .catch(error => {
+        console.error('Error updating service status:', error);
+        alert('Ошибка обновления статуса');
+    });
+}
+
+function downloadList() {
+    window.location.href = '/download_service_status';
+}
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.querySelector('.form-control-dark');
+    const rows = document.querySelectorAll('table.table-bordered tbody tr');
+
+    searchInput.addEventListener('input', function() {
+        const searchTerm = this.value.toLowerCase();
+
+        rows.forEach(row => {
+            const text = row.textContent.toLowerCase();
+            row.style.display = text.includes(searchTerm) ? '' : 'none';
+        });
+    });
+});
+</script>
+{% else %}
+    <div class="container mt-4">
+        <div class="alert alert-danger" role="alert">
+            У вас нет доступа к этой странице.
+        </div>
+    </div>
+    {% endif %}
+    {% endif %}
+{% endblock %}

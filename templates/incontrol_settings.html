@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}Личный аккаунт InControl{% endblock %}
+{% block body %}
+<div class="container py-4" style="max-width: 680px;">
+  <h1 class="h3 mb-3">Личный аккаунт InControl</h1>
+  {% if settings_error %}<div class="alert alert-danger" role="alert">{{ settings_error }}</div>{% endif %}
+  <form method="post" class="card card-body gap-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div><label for="incontrolLogin" class="form-label">Логин InControl</label>
+      <input id="incontrolLogin" class="form-control" type="text" name="incontrol_login" value="{{ incontrol_login }}" maxlength="254" autocomplete="off" required>
+    </div>
+    <div><label for="incontrolPassword" class="form-label">Пароль InControl</label>
+      <input id="incontrolPassword" class="form-control" type="password" name="incontrol_password" autocomplete="new-password" maxlength="4096" {% if not configured %}required{% endif %}>
+      {% if configured %}<div class="form-text">Пароль сохранён. Оставьте поле пустым, чтобы сохранить его для прежнего логина.</div>{% endif %}
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <button type="submit" name="action" value="save" class="btn btn-primary">Сохранить</button>
+      {% if configured %}
+      <button type="submit" name="action" value="delete" class="btn btn-outline-danger" formnovalidate>Удалить настройки</button>
+      {% endif %}
+    </div>
+  </form>
+  <p class="small text-muted mt-3">Пароль хранится зашифрованным и не отображается после сохранения. Пароль подписи из письма здесь вводить не нужно.</p>
+  <h2 class="h5 mt-4 mb-3">Закрытие заявок</h2>
+  <form method="post" class="card card-body gap-2">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="closure_checks">
+    <div class="form-check form-switch">
+      <input id="checkIncontrol" class="form-check-input" type="checkbox" name="incontrol" value="1" {% if 'incontrol' not in paused_services %}checked{% endif %}>
+      <label class="form-check-label" for="checkIncontrol">Проверять InControl при закрытии</label>
+    </div>
+    <div class="form-check form-switch">
+      <input id="replyYandexMail" class="form-check-input" type="checkbox" name="yandex_mail" value="1" {% if 'yandex_mail' not in paused_services %}checked{% endif %}>
+      <label class="form-check-label" for="replyYandexMail">Отправлять ответ в Яндекс Почте при закрытии</label>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <button type="submit" class="btn btn-primary">Применить</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

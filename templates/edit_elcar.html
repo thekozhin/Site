@@ -9,7 +9,18 @@
             <h4>Редактирование электробуса</h4>
         </div>
         <div class="card-body">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
             <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="row g-3">
                     <div class="col-md-4">
                         <label class="form-label">Борт №</label>
@@ -29,11 +40,32 @@
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">Местонахождение</label>
-                        <input type="text" class="form-control" name="location" value="{{ elcar.location }}">
+                        <select class="form-control" name="location" required>
+                            <option value="1 парк" {% if elcar.location == '1 парк' %}selected{% endif %}>1 парк</option>
+                            <option value="14 парк" {% if elcar.location == '14 парк' %}selected{% endif %}>14 парк</option>
+                            <option value="Красная Пахра" {% if elcar.location == 'Красная Пахра' %}selected{% endif %}>Красная Пахра</option>
+                        </select>
                     </div>
-                    <div class="col-12">
+                    <div class="col-md-6">
                         <label class="form-label">Контракт</label>
-                        <input type="text" class="form-control" name="contract" value="{{ elcar.contract }}">
+                        <select class="form-control" name="contract" required>
+                            <option value="МГТ0107-21" {% if elcar.contract == 'МГТ0107-21' %}selected{% endif %}>МГТ0107-21</option>
+                            <option value="МГТ234953-23" {% if elcar.contract == 'МГТ234953-23' %}selected{% endif %}>МГТ234953-23</option>
+                            <option value="МГТ0019-25" {% if elcar.contract == 'МГТ0019-25' %}selected{% endif %}>МГТ0019-25</option>
+                            <option value="МГТ0084-25" {% if elcar.contract == 'МГТ0084-25' %}selected{% endif %}>МГТ0084-25</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Модель</label>
+                        <select class="form-control" name="models" required>
+                            <option value="КАМАЗ 6282/80" {% if elcar.contract == 'КАМАЗ 6282/80' %}selected{% endif %}>КАМАЗ 6282/80</option>
+                            <option value="КАМАЗ-52222" {% if elcar.contract == 'КАМАЗ-52222' %}selected{% endif %}>КАМАЗ-52222</option>
+                        </select>
+                    </div>
+                     <div class="col-12">
+                        <label class="form-label">Комментарий</label>
+                        <textarea class="form-control" name="comments" rows="3">{{ elcar.comments or '' }}</textarea>
+
                     </div>
                     <div class="col-12">
                         <button type="submit" class="btn btn-primary">Сохранить</button>
@@ -44,19 +76,30 @@
         </div>
     </div>
 </div>
-{% endblock %}
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const bortInput = document.querySelector('input[name="bort"]');
+    const vinInput = document.querySelector('input[name="vin"]');
     const form = document.querySelector('form');
 
     form.addEventListener('submit', function(e) {
-        const bortValue = parseInt(bortInput.value);
-        if (isNaN(bortValue)) {
-            alert('Номер борта должен быть числом');
+        // Проверка номера борта
+        const bortValue = bortInput.value.trim();
+        if (!/^\d+$/.test(bortValue)) {
+            alert('Номер борта должен состоять только из цифр');
             e.preventDefault();
+            return;
+        }
+
+        // Проверка VIN (17 символов, только буквы и цифры)
+        const vinValue = vinInput.value.trim();
+        if (vinValue && !/^[A-Za-z0-9]{17}$/.test(vinValue)) {
+            alert('VIN должен состоять из 17 букв и/или цифр');
+            e.preventDefault();
+            return;
         }
     });
 });
 </script>
+{% endblock %}

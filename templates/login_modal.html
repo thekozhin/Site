@@ -1,36 +1,29 @@
-<!-- templates/login_modal.html -->
 <div class="modal fade" id="loginModal" tabindex="-1" aria-labelledby="loginModalLabel" aria-hidden="true">
-  <div class="modal-dialog">
-    <form method="POST" action="{{ url_for('login') }}" class="modal-content">
-      <div class="modal-header">
+  <div class="modal-dialog modal-dialog-centered">
+    <form method="POST" action="{{ url_for('login') }}" class="modal-content p-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="modal-header border-0">
         <h5 class="modal-title" id="loginModalLabel">Вход в систему</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <!-- Flash сообщения для модального окна логина -->
-        {% with messages = get_flashed_messages(category_filter=["login_error"]) %}
-          {% if messages %}
-            <div class="alert alert-danger alert-dismissible fade show mb-3" role="alert">
-              {% for message in messages %}
-                {{ message }}
-              {% endfor %}
-              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>
-          {% endif %}
-        {% endwith %}
-
-        <div class="mb-3">
-          <label for="modalUsername" class="form-label">Имя пользователя</label>
-          <input type="text" class="form-control" id="modalUsername" name="username" required>
+        <div class="form-floating mb-3">
+          <input type="text" class="form-control" id="modalUsername" name="username" placeholder="Имя пользователя" required>
+          <label for="modalUsername">Имя пользователя</label>
         </div>
-        <div class="mb-3">
-          <label for="modalPassword" class="form-label">Пароль</label>
-          <input type="password" class="form-control" id="modalPassword" name="password" required>
+
+        <div class="form-floating mb-3">
+          <input type="password" class="form-control" id="modalPassword" name="password" placeholder="Пароль" required>
+          <label for="modalPassword">Пароль</label>
+        </div>
+
+        <div class="form-check text-start my-3">
+          <input class="form-check-input" type="checkbox" value="remember-me" id="flexCheckDefault">
+          <label class="form-check-label" for="flexCheckDefault">Запомнить меня</label>
         </div>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
-        <button type="submit" class="btn btn-primary">Войти</button>
+      <div class="modal-footer border-0">
+        <button type="submit" class="btn btn-primary w-100 py-2">Войти</button>
       </div>
     </form>
   </div>

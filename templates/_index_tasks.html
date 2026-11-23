@@ -1,0 +1,206 @@
+{% for task in tasks %}
+                        <div data-task-id="{{ task.id }}" class="list-group-item {% if elcars.get(task.board_number) == 'МГТ0019-25' and selected_park == 'Красная Пахра' %}highlight-green{% endif %}">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="flex-grow-1">
+                                    <h5 class="mb-1 d-flex align-items-center" style="gap: 8px;">
+                                        {#                                       <a href="https://setrans.online/about?search={{ task.board_number }}"#}
+                                        {#                                          class="text-decoration-none board-link"#}
+                                        {#                                          data-board-number="{{ task.board_number }}"#}
+                                        {#                                          style="color: inherit; font-weight: inherit;">#}
+                                        {#                                           {{ task.board_number }}#}
+                                        {#                                        </a>#}
+
+                                        <a href="https://setrans.online/about?search={{ task.board_number }}"
+                                           class="text-decoration-none"
+                                           style="color: inherit; font-weight: inherit;">
+                                            {{ task.board_number }}
+                                        </a>
+
+                                        {% if task.board_number in cars %}
+                                            {% if cars[task.board_number] == "МГТ0105-21" %}
+                                                <span class="contract-badge badge-1"
+                                                      style="display: inline-flex; align-items: center; justify-content: center;"
+                                                      title="Контракт: МГТ0105-21">8</span>
+                                            {% elif cars[task.board_number] == "216644" %}
+                                                <span class="contract-badge badge-2"
+                                                      style="display: inline-flex; align-items: center; justify-content: center;"
+                                                      title="Контракт: 216644">2</span>
+                                            {% elif cars[task.board_number] == "222150" %}
+                                                <span class="contract-badge badge-3"
+                                                      style="display: inline-flex; align-items: center; justify-content: center;"
+                                                      title="Контракт: 222150">6</span>
+                                            {% elif cars[task.board_number] == "МГТ0223-25" %}
+                                                <span class="contract-badge badge-7"
+                                                      style="display: inline-flex; align-items: center; justify-content: center;"
+                                                      title="Контракт: МГТ0223-25">12</span>
+                                            {% else %}
+                                                <span class="contract-badge badge-unknown"
+                                                      style="display: inline-flex; align-items: center; justify-content: center;"
+                                                      title="Контракт: {{ cars[task.board_number] }}">?</span>
+                                            {% endif %}
+                                        {% elif task.board_number in elcars %}
+                                            {% if elcars[task.board_number] == "МГТ234953-23" %}
+                                                <span class="contract-badge badge-4"
+                                                      style="display: inline-flex; align-items: center; justify-content: center;"
+                                                      title="Электробус: МГТ234953-23">9</span>
+                                            {% elif elcars[task.board_number] == "МГТ0019-25" %}
+                                                <span class="contract-badge badge-5"
+                                                      style="display: inline-flex; align-items: center; justify-content: center;"
+                                                      title="Контракт: МГТ0019-25">11</span>
+                                            {% elif elcars[task.board_number] == "МГТ0107-21" %}
+                                                <span class="contract-badge badge-6"
+                                                      style="display: inline-flex; align-items: center; justify-content: center;"
+                                                      title="Контракт: МГТ0107-21">7</span>
+                                            {% elif elcars[task.board_number] == "МГТ0084-25" %}
+                                                <span class="contract-badge badge-8"
+                                                      style="display: inline-flex; align-items: center; justify-content: center;"
+                                                      title="Контракт: МГТ0084-25">15</span>
+                                            {% else %}
+                                                <span class="contract-badge badge-unknown"
+                                                      style="display: inline-flex; align-items: center; justify-content: center;"
+                                                      title="Контракт не указан">?</span>
+                                            {% endif %}
+                                        {% endif %}
+
+                                        <!-- {% if seasonal_vehicles and task.board_number in seasonal_vehicles %}
+                                            <span class="seasonal-badge" title="Сезонное обслуживание выполнено">
+                                            <i class="bi bi bi-snow"></i>
+                                            </span>
+                                        {% endif %} -->
+
+                                        {% if incontrol_boards and task.board_number in incontrol_boards %}
+                                            <img src="{{ url_for('static', filename='img/incontrol.png') }}"
+                                                 alt="InControl"
+                                                 title="В InControl есть открытая заявка"
+                                                 class="incontrol-badge">
+                                        {% endif %}
+
+                                        <a href="#" class="text-decoration-none comment-option"
+                                           data-task-id="{{ task.id }}"
+                                           title="Добавить/редактировать комментарий">
+                                            <i class="bi bi-chat-square-text"></i>
+                                        </a>
+
+                                        <span class="comment-text" id="comment-text-{{ task.id }}">
+                                            {% if task.comment %}{{ task.comment.replace('\n', ', ') }}{% endif %}
+                                        </span>
+                                    </h5>
+
+                                    <p class="mb-1 text-muted">
+                                        {{ task.description.replace('\n', ', ') }}
+                                        <a href="{{ url_for('edit_description', task_id=task.id, sort_by=index_sort_by, order=index_sort_order) }}"
+                                           class="ms-2 text-decoration-none"
+                                           title="{% if task.id_to or task.tag == 'to' %}Добавить работы к ТО{% else %}Редактировать{% endif %}">
+                                            <i class="bi bi-pencil-square"></i>
+                                        </a>
+                                    </p>
+                                </div>
+
+                                <div class="d-flex align-items-center">
+                                    <div class="dropdown">
+                                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle py-0"
+                                                type="button"
+                                                id="eventDropdown{{ task.id }}"
+                                                data-bs-toggle="dropdown"
+                                                aria-expanded="false"
+                                                style="font-size: 0.8rem;">
+                                            <span class="event-label">
+                                                {% if task.event_type == 'Сход' %}
+                                                    <span class="text-danger fw-bold"><i
+                                                            class="bi bi-exclamation-triangle"></i> Сход</span>
+                                                {% elif task.event_type == 'эвакуация' %}
+                                                    <span class="text-warning text-dark fw-bold"><i
+                                                            class="bi bi-truck"></i> Эвакуация</span>
+                                                {% elif task.event_type == 'выезд' %}
+                                                    <span class="text-primary fw-bold"><i class="bi bi-car-front"></i> Выезд</span>
+                                                {% elif task.event_type == 'цех' %}
+                                                    <span class="text-success fw-bold"><i
+                                                            class="bi bi-building-check"></i> Цех</span>
+                                                {% else %}
+                                                    <span class="text-muted">Метка</span>
+                                                {% endif %}
+                                            </span>
+                                        </button>
+                                        <ul class="dropdown-menu" aria-labelledby="eventDropdown{{ task.id }}"
+                                            style="font-size: 0.85rem;">
+                                            <li>
+                                                <button class="dropdown-item event-option text-danger"
+                                                        data-task-id="{{ task.id }}" data-event="сход" type="button">
+                                                    Сход
+                                                </button>
+                                            </li>
+                                            <li>
+                                                <button class="dropdown-item event-option text-warning"
+                                                        data-task-id="{{ task.id }}" data-event="эвакуация"
+                                                        type="button">Эвакуация
+                                                </button>
+                                            </li>
+                                            <li>
+                                                <button class="dropdown-item event-option text-primary"
+                                                        data-task-id="{{ task.id }}" data-event="выезд" type="button">
+                                                    Выезд
+                                                </button>
+                                            </li>
+                                            <li>
+                                                <button class="dropdown-item event-option text-success"
+                                                        data-task-id="{{ task.id }}" data-event="цех" type="button">
+                                                    Цех
+                                                </button>
+                                            </li>
+                                            <li>
+                                                <hr class="dropdown-divider">
+                                            </li>
+                                            <li>
+                                                <button class="dropdown-item event-option text-muted"
+                                                        data-task-id="{{ task.id }}" data-event="none" type="button">
+                                                    Снять метку
+                                                </button>
+                                            </li>
+                                        </ul>
+                                    </div>
+
+                                    {% if task.id_to or task.tag == 'to' %}
+                                        <span title="{{ to_task_notice }}">
+                                            <button class="btn btn-sm tag-pill tag-{{ task.tag }} btn-task-action"
+                                                    type="button"
+                                                    disabled>
+                                                {{ TAG_CHOICES[task.tag] }}
+                                            </button>
+                                        </span>
+                                    {% else %}
+                                        <div class="dropdown">
+                                            <button class="btn btn-sm tag-pill tag-{{ task.tag }} dropdown-toggle btn-task-action"
+                                                    type="button"
+                                                    id="tagDropdown{{ task.id }}" data-bs-toggle="dropdown"
+                                                    aria-expanded="false">
+                                                {{ TAG_CHOICES[task.tag] }}
+                                            </button>
+                                            <ul class="dropdown-menu" aria-labelledby="tagDropdown{{ task.id }}">
+                                                {% for value, label in TAG_CHOICES.items() %}
+                                                    <li>
+                                                        <button class="dropdown-item d-flex align-items-center tag-option"
+                                                                data-task-id="{{ task.id }}"
+                                                                data-tag="{{ value }}"
+                                                                type="button">
+                                                            <span class="tag-pill tag-{{ value }} me-2"></span>
+                                                            {{ label }}
+                                                        </button>
+                                                    </li>
+                                                {% endfor %}
+                                            </ul>
+                                        </div>
+                                    {% endif %}
+
+                                    <div class="text-end me-3 text-muted" style="line-height: 1.2;">
+                                        <div class="small fw-bold">{{ task.created_at.strftime('%d.%m.%y') }}</div>
+                                        <div class="small">{{ task.created_at.strftime('%H:%M') }}</div>
+                                    </div>
+
+                                    <a href="{{ url_for('complete_task', task_id=task.id, sort_by=index_sort_by, order=index_sort_order) }}"
+                                       class="btn btn-success btn-sm task-btn-fixed">
+                                        Завершить
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}

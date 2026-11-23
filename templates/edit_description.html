@@ -9,12 +9,30 @@
             <h4>{{ task.board_number }}</h4>
         </div>
         <div class="card-body">
-            <form method="POST">
-                <div class="mb-3">
-                    <label for="description" class="form-label">Описание:</label>
-                    <textarea class="form-control" id="description" name="description" rows="5" required>{{ task.description }}</textarea>
+            {% if is_to_task %}
+                <div class="alert alert-warning" role="alert">
+                    {{ to_task_notice }}
                 </div>
-                <button type="submit" class="btn btn-primary">Сохранить</button>
+            {% endif %}
+            <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if is_to_task %}
+                    <div class="mb-3">
+                        <label for="to_base_description" class="form-label">Тип ТО:</label>
+                        <input class="form-control" id="to_base_description" value="{{ to_base_description }}" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label for="additional_description" class="form-label">Дополнительные работы:</label>
+                        <textarea class="form-control" id="additional_description" name="additional_description" rows="5">{{ to_additional_description }}</textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Сохранить</button>
+                {% else %}
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Описание:</label>
+                        <textarea class="form-control" id="description" name="description" rows="5" required>{{ task.description }}</textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Сохранить</button>
+                {% endif %}
                 <a href="{{ url_for('index') }}" class="btn btn-secondary">Отмена</a>
             </form>
         </div>

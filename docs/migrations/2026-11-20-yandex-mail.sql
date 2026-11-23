@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS yandex_mail_request (
+    task_id INT NOT NULL PRIMARY KEY,
+    mailbox VARCHAR(254) NOT NULL,
+    park VARCHAR(50) NOT NULL,
+    board_number VARCHAR(20) NOT NULL,
+    ticket_number VARCHAR(40) NOT NULL,
+    folder VARCHAR(255) NOT NULL,
+    message_key VARCHAR(64) NOT NULL,
+    message_id VARCHAR(512) NOT NULL,
+    recipient VARCHAR(254) NOT NULL,
+    subject VARCHAR(500) NOT NULL,
+    received_at DATETIME NOT NULL,
+    reply_state VARCHAR(16) NOT NULL DEFAULT 'open',
+    reply_text TEXT NULL,
+    reply_attempt_at DATETIME NULL,
+    reply_sent_at DATETIME NULL,
+    reply_error VARCHAR(255) NULL,
+    UNIQUE KEY uq_yandex_mail_ticket (mailbox, park, ticket_number),
+    UNIQUE KEY uq_yandex_mail_message (message_key),
+    KEY ix_yandex_mail_replies (reply_state, reply_attempt_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

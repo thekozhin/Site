@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block title %}В ремонте{% endblock %}
+
+{% block body %}
+{% if current_user.is_authenticated %}
+<div class="container my-3">
+  <div class="d-flex flex-column flex-md-row justify-content-between align-items-center mb-3 gap-2">
+    <h6 class="mb-0 text-center text-md-start">
+      Открытые заявки | 2 - {{ ktg_2|round(2) }}% | 6 - {{ ktg_6|round(2) }}% | 8 - {{ ktg_8|round(2) }}% Заявок в работе - {{ in_repair_count }}
+    </h6>
+    <a href="{{ url_for('export_tasks') }}" class="btn btn-primary btn-sm w-100 w-md-auto">
+      Выгрузить список
+    </a>
+  </div>
+
+  <!-- Модальные окна без изменений -->
+  <!-- ... ваш код модальных окон ... -->
+
+  <!-- Список задач -->
+  <div class="list-group">
+    {% for task in tasks %}
+    <div class="list-group-item d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+      <div class="flex-grow-1">
+        <h5 class="mb-1 d-flex align-items-center flex-wrap gap-2">
+          <span>{{ task.board_number }}</span>
+          {% if task.board_number in cars %}
+            {% if cars[task.board_number] == "МГТ0105-21" %}
+              <span class="contract-badge badge-1" title="Контракт: МГТ0105-21">8</span>
+            {% elif cars[task.board_number] == "216644" %}
+              <span class="contract-badge badge-2" title="Контракт: 216644">2</span>
+            {% elif cars[task.board_number] == "222150" %}
+              <span class="contract-badge badge-3" title="Контракт: 222150">6</span>
+            {% else %}
+              <span class="contract-badge badge-unknown" title="Контракт: {{ cars[task.board_number] }}">?</span>
+            {% endif %}
+          {% elif task.board_number in elcars %}
+            <span class="contract-badge badge-unknown" title="Электробус: {{ elcars[task.board_number] }}">E</span>
+          {% else %}
+            <span class="contract-badge badge-unknown" title="Контракт не указан">?</span>
+          {% endif %}
+        </h5>
+        <p class="mb-1 text-muted" style="white-space: pre-wrap;">
+          {{ task.description }}
+          <a href="{{ url_for('edit_description', task_id=task.id) }}" class="ms-2 text-decoration-none" title="Редактировать">
+            <i class="bi bi-pencil-square"></i>
+          </a>
+        </p>
+      </div>
+
+      <div class="d-flex flex-column flex-sm-row align-items-sm-center gap-2 gap-sm-3">
+        <!-- Выпадающий список меток -->
+        <div class="dropdown">
+          <button class="btn btn-sm dropdown-toggle tag-pill tag-{{ task.tag }}" type="button"
+                  id="tagDropdown{{ task.id }}" data-bs-toggle="dropdown" aria-expanded="false">
+            {{ task.TAG_CHOICES[task.tag] }}
+          </button>
+          <ul class="dropdown-menu" aria-labelledby="tagDropdown{{ task.id }}">
+            {% for value, label in task.TAG_CHOICES.items() %}
+            <li>
+              <button class="dropdown-item d-flex align-items-center tag-option" data-task-id="{{ task.id }}" data-tag="{{ value }}" type="button">
+                <span class="tag-pill tag-{{ value }} me-2"></span>
+                {{ label }}
+              </button>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+
+        <!-- Дата создания -->
+        <div class="text-muted small text-nowrap">
+          {{ task.created_at.strftime('%d.%m.%y %H:%M') }}
+        </div>
+
+        <!-- Кнопка завершения -->
+        <a href="{{ url_for('complete_task', task_id=task.id) }}" class="btn btn-success btn-sm w-100 w-sm-auto">
+          Завершить
+        </a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<style>
+  .contract-badge {
+    display: inline-block;
+    padding: 0.15em 0.5em;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 0.25rem;
+    color: #fff;
+    user-select: none;
+  }
+
+  .badge-1 { background-color: #0d6efd; } /* синий */
+  .badge-2 { background-color: #198754; } /* зеленый */
+  .badge-3 { background-color: #fd7e14; } /* оранжевый */
+  .badge-unknown { background-color: #6c757d; } /* серый */
+
+  /* Круглые метки тегов */
+  .tag-pill {
+    border-radius: 50rem;
+    padding: 0.25em 0.75em;
+    font-size: 0.75rem;
+    font-weight: 600;
+    user-select: none;
+  }
+
+  /* Теги с разным цветом */
+  .tag-in_work { background-color: #0d6efd; color: white; }
+  .tag-waiting { background-color: #ffc107; color: black; }
+  .tag-ozch { background-color: #dc3545; color: white; }
+  .tag-no_request { background-color: #6c757d; color: white; }
+  .tag-to { background-color: #198754; color: white; }
+</style>
+
+<!-- Ваш JS без изменений -->
+
+{% endif %}
+{% endblock %}

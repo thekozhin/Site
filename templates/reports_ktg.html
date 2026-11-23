@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}Отчёты по времени{% endblock %}
+
+{% block body %}
+    {% if current_user.is_authenticated %}
+        {% if current_user.company == 'Сетранс' %}
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+            <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&display=swap"
+                  rel="stylesheet">
+
+            <div class="container mt-4">
+                <!-- Фильтры: Дата + Контракт -->
+                <form class="mb-4" method="GET">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-auto">
+                            <label for="date" class="form-label">Дата</label>
+                            <input type="date" id="date" name="date" class="form-control"
+                                   value="{{ selected_date.strftime('%Y-%m-%d') }}">
+                        </div>
+
+                        <div class="col-auto">
+                            <label for="contract" class="form-label">Контракт</label>
+                            <select id="contract" name="contract" class="form-select">
+                                <option value="">Все контракты</option>
+                                {% for contract in contracts %}
+                                    <option value="{{ contract }}"
+                                            {% if contract == selected_contract %}selected{% endif %}>
+                                        {{ contract }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-auto">
+                            <button type="submit" class="btn btn-primary">Применить</button>
+                        </div>
+                        <div class="col-auto">
+                            <a href="{{ url_for('reports_ktg') }}" class="btn btn-outline-secondary">Сброс</a>
+                        </div>
+                        {% if selected_contract %}
+                            <div class="col-auto ms-4">
+                                <div class="alert alert-info py-2 px-4 mb-0">
+                                    {% if selected_contract in avg_percentages %}
+                                        <span class="ms-3"><strong>{{ selected_contract }}</strong> - {{ avg_percentages[selected_contract] }}%</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endif %}
+                        {% if selected_contract and avg_percentages[selected_contract] is defined %}
+                            <div class="col-auto">
+                                <a href="{{ url_for('reports_ktg', date=selected_date.strftime('%Y-%m-%d'), contract=selected_contract, print_act=1) }}"
+                                   class="btn btn-success btn-lg shadow-sm"
+                                   target="_blank">
+                                    <i class="fas fa-file-word me-1"></i>
+                                    Акт СЭТранс
+                                </a>
+                            </div>
+                            <div class="col-auto">
+                                <a href="{{ url_for('reports_ktg', date=selected_date.strftime('%Y-%m-%d'), contract=selected_contract, print_act_mgt=1) }}"
+                                   class="btn btn-success btn-lg shadow-sm"
+                                   target="_blank">
+                                    <i class="fas fa-file-word me-1"></i>
+                                    Акт для МГТ
+                                </a>
+                            </div>
+                        {% endif %}
+                    </div>
+                </form>
+
+                <!-- Таблица -->
+                <div class="table-responsive">
+                    <table class="table table-bordered table-hover align-middle">
+                        <thead class="table-primary text-center">
+                        <th width="25%">
+                            {{ time_column_1[selected_contract] }}
+                            <span class="ms-2 badge bg-primary">{{ r7|length }}</span>
+{#                            <span class="ms-2">{{ percentages_1[selected_contract] }}%</span>#}
+                        </th>
+
+                        <th width="25%">
+                            {{ time_column_2[selected_contract] }}
+                            <span class="ms-2 badge bg-primary">{{ r830|length }}</span>
+{#                            <span class="ms-2">{{ percentages_2[selected_contract] }}%</span>#}
+                        </th>
+
+                        <th width="25%">
+                            17-00
+                            <span class="ms-2 badge bg-primary">{{ r17|length }}</span>
+{#                            <span class="ms-2">{{ percentages_3[selected_contract] }}%</span>#}
+                        </th>
+
+                        <th width="25%">
+                            19-00
+                            <span class="ms-2 badge bg-primary">{{ r19|length }}</span>
+{#                            <span class="ms-2">{{ percentages_4[selected_contract] }}%</span>#}
+                        </th>
+                        </thead>
+                        <tbody>
+                        {% set max_rows = [r7|length, r830|length, r17|length, r19|length]|max %}
+                        {% if max_rows == 0 %}
+                            <tr>
+                                <td colspan="4" class="text-center text-muted py-5">
+                                    {% if selected_contract %}
+                                        Нет данных по контракту <strong>{{ selected_contract }}</strong> за
+                                        {{ formatted_date }}
+                                    {% else %}
+                                        Нет данных за {{ formatted_date }}
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% else %}
+                            {% for i in range(max_rows) %}
+                                <tr>
+
+                                    <!-- 7-15 -->
+                                    <td class="text-start align-top">
+                                        {% if i < r7|length %}
+                                            <div class="d-flex justify-content-between">
+                                                <span>{{ r7[i] }}</span>
+                                                <form method="POST" action="/delete_value" class="ms-2">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                    <input type="hidden" name="table" value="r7">
+                                                    <input type="hidden" name="value" value="{{ r7[i] }}">
+                                                    <input type="hidden" name="date"
+                                                           value="{{ selected_date.strftime('%Y-%m-%d') }}">
+                                                    <input type="hidden" name="contract"
+                                                           value="{{ selected_contract }}">
+                                                    <span onclick="this.closest('form').submit()"
+                                                          class="text-danger fw-bold"
+                                                          style="cursor: pointer; font-size: 1.2em;">✖</span>
+
+                                                </form>
+                                            </div>
+                                        {% endif %}
+                                    </td>
+
+                                    <!-- 8-30 -->
+                                    <td class="text-start align-top">
+                                        {% if i < r830|length %}
+                                            <div class="d-flex justify-content-between">
+                                                <span>{{ r830[i] }}</span>
+                                                <form method="POST" action="/delete_value" class="ms-2">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                    <input type="hidden" name="table" value="r830">
+                                                    <input type="hidden" name="value" value="{{ r830[i] }}">
+                                                    <input type="hidden" name="date"
+                                                           value="{{ selected_date.strftime('%Y-%m-%d') }}">
+                                                    <input type="hidden" name="contract"
+                                                           value="{{ selected_contract }}">
+                                                    <span onclick="this.closest('form').submit()"
+                                                          class="text-danger fw-bold"
+                                                          style="cursor: pointer; font-size: 1.2em;">✖</span>
+
+                                                </form>
+                                            </div>
+                                        {% endif %}
+                                    </td>
+
+                                    <!-- 17-00 -->
+                                    <td class="text-start align-top">
+                                        {% if i < r17|length %}
+                                            <div class="d-flex justify-content-between">
+                                                <span>{{ r17[i] }}</span>
+                                                <form method="POST" action="/delete_value" class="ms-2">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                    <input type="hidden" name="table" value="r17">
+                                                    <input type="hidden" name="value" value="{{ r17[i] }}">
+                                                    <input type="hidden" name="date"
+                                                           value="{{ selected_date.strftime('%Y-%m-%d') }}">
+                                                    <input type="hidden" name="contract"
+                                                           value="{{ selected_contract }}">
+                                                    <span onclick="this.closest('form').submit()"
+                                                          class="text-danger fw-bold"
+                                                          style="cursor: pointer; font-size: 1.2em;">✖</span>
+                                                </form>
+                                            </div>
+                                        {% endif %}
+                                    </td>
+
+                                    <!-- 19-00 -->
+                                    <td class="text-start align-top">
+                                        {% if i < r19|length %}
+                                            <div class="d-flex justify-content-between">
+                                                <span>{{ r19[i] }}</span>
+                                                <form method="POST" action="/delete_value" class="ms-2">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                    <input type="hidden" name="table" value="r19">
+                                                    <input type="hidden" name="value" value="{{ r19[i] }}">
+                                                    <input type="hidden" name="date"
+                                                           value="{{ selected_date.strftime('%Y-%m-%d') }}">
+                                                    <input type="hidden" name="contract"
+                                                           value="{{ selected_contract }}">
+                                                    <span onclick="this.closest('form').submit()"
+                                                          class="text-danger fw-bold"
+                                                          style="cursor: pointer; font-size: 1.2em;">✖</span>
+                                                </form>
+                                            </div>
+                                        {% endif %}
+                                    </td>
+
+                                </tr>
+                            {% endfor %}
+                        {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+
+
+                <!-- Форма добавления -->
+                <h5>Добавить новое значение</h5>
+
+                <form method="POST" action="/add_value" class="row g-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="col-md-3">
+                        <label class="form-label">Колонка</label>
+                        <select name="table" class="form-select" required>
+                            <option value="r7">7-15</option>
+                            <option value="r830">8-30</option>
+                            <option value="r17">17-00</option>
+                            <option value="r19">19-00</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-5">
+                        <label class="form-label">Новое значение</label>
+                        <input type="text" name="value" class="form-control" required>
+                    </div>
+
+                    <input type="hidden" name="date" value="{{ selected_date.strftime('%Y-%m-%d') }}">
+                    <input type="hidden" name="contract" value="{{ selected_contract }}">
+
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button class="btn btn-success w-100">Добавить</button>
+                    </div>
+                </form>
+
+            </div>
+        {% else %}
+            <div class="container mt-4">
+                <div class="alert alert-danger" role="alert">
+                    У вас нет доступа к этой странице.
+                </div>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}

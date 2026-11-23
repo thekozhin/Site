@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}КТГ — Dashboard{% endblock %}
+{% block body %}
+<div class="container-fluid py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+    <div>
+      <h2 class="mb-1">КТГ и машины в ремонте</h2>
+      <div class="text-muted">{{ selected_park or 'Выберите парк в верхнем меню' }}</div>
+    </div>
+    <form method="get" class="d-flex flex-wrap align-items-end gap-2">
+      <div><label for="dashboardPeriod" class="form-label small mb-1">Период</label>
+        <select id="dashboardPeriod" name="period" class="form-select">
+          {% for value, label in [('day', 'День'), ('week', 'Неделя'), ('month', 'Месяц'), ('year', 'Год')] %}
+          <option value="{{ value }}" {% if period == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div><label for="dashboardDate" class="form-label small mb-1">Дата в выбранном периоде</label>
+        <input id="dashboardDate" name="date" type="date" min="1900-01-01" max="9998-12-31" class="form-control" value="{{ selected_date }}">
+      </div>
+      <button class="btn btn-primary" type="submit">Показать</button>
+    </form>
+  </div>
+  {% if metrics.latest %}
+  <div class="row g-3 mb-3">
+    <div class="col-sm-6"><div class="card h-100"><div class="card-body">
+      <div class="text-muted small">КТГ · последний снимок периода</div>
+      <div class="fs-2 fw-semibold text-primary">{{ ('%.2f'|format(metrics.latest.ktg)) ~ '%' if metrics.latest.ktg is not none else '—' }}</div>
+    </div></div></div>
+    <div class="col-sm-6"><div class="card h-100"><div class="card-body">
+      <div class="text-muted small">Машины в ремонте · последний снимок периода</div>
+      <div class="fs-2 fw-semibold">{{ metrics.latest.repair }}</div>
+    </div></div></div>
+  </div>
+  {% endif %}
+  <div class="card shadow-sm"><div class="card-body">
+    <div class="fw-semibold">{{ metrics.range }}</div>
+    <div class="small text-muted mb-3">{{ metrics.aggregation }}. Время московское.{% if metrics.latest %} Последний снимок: {{ metrics.latest.time }}.{% endif %}</div>
+    {% if metrics.has_data %}
+    <div id="dashboardChartStatus" class="small text-muted" role="status">Загрузка графика…</div>
+    <div style="height: min(55vh, 480px); min-height: 300px; position: relative;">
+      <canvas id="dashboardChart" role="img" aria-label="Динамика КТГ и количества машин в ремонте"></canvas>
+    </div>
+    <details class="mt-3"><summary>Данные графика</summary>
+      <div class="table-responsive"><table class="table table-sm mt-2">
+        <thead><tr><th>Период</th><th>КТГ, %</th><th>Машины в ремонте, среднее</th></tr></thead>
+        <tbody>{% for label in metrics.labels %}<tr><td>{{ label }}</td><td>{{ metrics.ktg[loop.index0] if metrics.ktg[loop.index0] is not none else '—' }}</td><td>{{ metrics.repair[loop.index0] if metrics.repair[loop.index0] is not none else '—' }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </details>
+    <script id="dashboardChartData" type="application/json">{{ {'labels': metrics.labels, 'ktg': metrics.ktg, 'repair': metrics.repair}|tojson }}</script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}" defer></script>
+    {% else %}
+    <div class="text-center text-muted py-5" role="status">{% if selected_park %}За выбранный период нет сохранённых снимков.{% else %}Выберите доступный парк, чтобы увидеть историю.{% endif %}</div>
+    {% endif %}
+  </div></div>
+</div>
+{% endblock %}

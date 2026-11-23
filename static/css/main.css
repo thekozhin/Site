@@ -1,6 +1,17 @@
+html, body {
+    font-family: 'Jost', sans-serif;
+    font-size: 16px; /* базовый размер */
+}
+
 /* буквы шапки */
-.small-caps {font-variant: small-caps;}
-.nav-link {font-family: Arial, sans-serif, sans-serif;font-weight: bold;}
+.small-caps {
+    font-variant: small-caps;
+}
+
+.nav-link {
+    font-weight: 600;
+}
+
 
 /* эмблемма' */
 .header__img {
@@ -15,7 +26,7 @@ header {
     z-index: 1000;
     background: #fff;
     -webkit-box-shadow: 0 5px 25px rgba(0, 0, 0, 0.15);
-        box-shadow: 0 5px 25px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.15);
 }
 
 /* для кнопки ВХОД */
@@ -24,6 +35,10 @@ header {
 .btn-outline-orange:hover {
     color: #ffc107;
     border-color: #ffc107;
+}
+
+.text-end {
+    font-size: 16px; /* базовый размер */
 }
 
 .btn-outline-orange {
@@ -54,11 +69,89 @@ header {
     margin-right: 0.5rem;
 }
 
-.tag-in_work {color: white;background-color: #28a745; /* Зеленый */}
-.tag-waiting {color: white;background-color: #ffc107; /* Желтый */}
-.tag-ozch {color: white;background-color: #a65909; /* Красный */}
-.tag-no_request {color: white;background-color: #dc3545; /* Красный */}
-.tag-to {color: white;background-color: #006ff3; /* Синий */}
+.tag-in_work {
+    /*color: white;*/
+    /*background-color: #28a745; !* Зеленый *!*/
+
+    background-color: white;
+    color: #28a745; /* Зеленый */
+    border-color: #28a745;
+    border: 3px solid;
+    font-size: 14px;
+}
+
+.tag-waiting {
+    /*color: white;*/
+    /*background-color: #ffc107; !* Желтый *!*/
+
+    background-color: white;
+    color: #ffc107; /* Желтый */
+    border-color: #ffc107;
+    border: 3px solid;
+    font-size: 14px;
+
+}
+
+.tag-ozch {
+    /*color: white;*/
+    /*background-color: rgb(166, 89, 9);*/
+    background-color: white;
+    color: rgb(166, 89, 9);
+    border: 3px solid;
+    font-size: 14px;
+}
+
+.tag-no_request {
+    color: rgba(107, 113, 107, 0.77);
+    background-color: white; /* Красный */
+    border: 3px solid;
+    font-size: 14px;
+}
+
+.tag-otm {
+    color: #006ff3;
+    background-color: white; /* Cиний */
+    border: 3px solid;
+    font-size: 14px;
+}
+
+.tag-success {
+    color: white;
+    background-color: #dc3545;
+}
+
+.tag-to,
+.tag-pill.tag-to,
+.tag-pill.tag-to:disabled,
+.tag-pill.tag-to.disabled {
+    /*color: white !important;*/
+    /*background-color: #006ff3 !important; !* Синий *!*/
+    /*border-color: #006ff3 !important;*/
+    background-color: white !important;
+    color: #006ff3 !important; /* Синий */
+    border-color: #006ff3 !important;
+    border: 3px solid;
+    font-size: 14px;
+    opacity: 1;
+}
+
+.tag-gto {
+    color: #f300ca;
+    background-color: white;
+    border: 3px solid;
+    font-size: 14px;
+}
+
+/* Общие стили для всех тегов */
+[class^="tag-"], [class*=" tag-"] {
+    display: inline-block;
+    border-radius: 5px;
+    padding: 2px 6px;
+    font-size: 0.75rem;
+    margin-left: 5px;
+    font-weight: 800;
+}
+
 
 /* Стиль для иконки редактирования */
 .bi-pencil-square {
@@ -67,7 +160,9 @@ header {
     transition: color 0.2s;
 }
 
-.bi-pencil-square:hover {color: #0d6efd;}
+.bi-pencil-square:hover {
+    color: #0d6efd;
+}
 
 /* Стили для таблицы автобусов */
 .table-buses {
@@ -90,32 +185,208 @@ header {
     margin-bottom: 20px;
     background-color: #f8f9fa;
 }
+
 .filter-card .card-title {
     margin-bottom: 1rem;
     font-size: 1.1rem;
     font-weight: 500;
 }
 
-    /* Чередование цветов для задач */
+/* Чередование цветов для задач */
 .list-group-item:nth-child(even) {
     background-color: #f8f9fa;
 }
+
 .list-group-item:nth-child(odd) {
     background-color: white;
 }
 
-    .contract-badge {
-        display: inline-block;
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
-        text-align: center;
-        line-height: 16px;
-        font-size: 10px;
-        color: white;
-        margin-left: 5px;
+.contract-badge {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 16px;
+    font-size: 10px;
+    color: white;
+    margin-left: 5px;
+    flex-shrink: 0;
+}
+
+.badge-1 {
+    background-color: #0777ff;
+}
+
+/* МГТ0105-21 - 8 контракт */
+.badge-2 {
+    background-color: #15a60e;
+}
+
+/* 216644 - 2 контракт */
+.badge-3 {
+    background-color: #df8605;
+}
+
+/* 222150 - 6 контракт */
+.badge-4 {
+    background-color: #ff0000;
+}
+
+/* МГТ234953-23 - 9 контракт */
+.badge-5 {
+    background-color: #808080;
+}
+
+/* МГТ0019-25 - 11 контракт */
+.badge-6 {
+    background-color: #f7ff00;
+    color: #000000;
+    border: 1px solid #000;
+}
+
+/* МГТ0223-25 - 12 контракт */
+.badge-7 {
+    background-color: #a836ff;
+}
+
+/* МГТ0107-21 - 7 контракт */
+.badge-unknown {
+    background-color: #6c757d;
+}
+
+/* МГТ0084-25 - 15 контракт */
+.badge-8 {
+    background-color: rgb(63, 255, 0);
+    color: #000000;
+    border: 1px solid #000;
+}
+
+/* неизвестный контракт - серый */
+.comment-text {
+    font-style: italic;
+    font-size: 0.6em; /* Чуть больше, чем contract-badge, но меньше описания */
+    color: #6c757d; /* Цвет, как у text-muted */
+    margin-left: 10px;
+    font-weight: normal; /*не жирный текст*/
+}
+
+.bi-chat-square-text {
+    font-size: 0.75em; /* размер иконки комментария */
+}
+
+.bi-pencil-square {
+    font-size: 0.8em; /* Уменьшенный размер иконки редактирования */
+}
+
+.text-muted {
+    font-size: 1em; /* Размер шрифта описания */
+}
+
+.text-muted.small {
+    font-size: 0.9em; /* Размер шрифта для других мелких текстов */
+}
+
+.btn-task-action {
+    height: 21px; /* Стандартная высота btn-sm в Bootstrap 5 (31px) */
+    width: 90px; /* Высота - можно потмо убрать*/
+    display: inline-flex; /* Включаем flex для центрирования */
+    align-items: center; /* Центрируем текст по вертикали */
+    justify-content: center;
+    padding-top: 0; /* Сбрасываем внутренние отступы, чтобы */
+    padding-bottom: 0; /* они не влияли на заданную высоту */
+    line-height: 1; /* Фиксируем высоту строки */
+    vertical-align: middle;
+}
+
+.highlight-green {
+    background-color: #ffecd6 !important; /* бледно-зелёный */
+}
+
+.seasonal-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 4px;
+    color: #004fff; /*  цвет для сезонки */
+    font-size: 0.9em;
+    cursor: help;
+}
+
+.seasonal-badge i {
+    font-size: 0.85em;
+}
+
+/* Открытая заявка у заказчика в incontrol24 */
+.incontrol-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 4px;
+    padding: 0 6px;
+    height: 18px;
+    border-radius: 9px;
+    color: #198754;
+    background-color: #fff;
+    border: 1px solid #198754;
+    font-size: 0.6em;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    cursor: help;
+}
+.ktg-badge {
+    display: inline-block;
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+}
+.ktg-badge.val-good { color: #0ca30c; }
+.ktg-badge.val-bad  { color: #d03b3b; }
+
+@media (max-width: 1500px) {
+    .ktg-badge { font-size: 12px; padding: 0 3px; }
+}
+@media (max-width: 768px) {
+    .ktg-badge { font-size: 9px; padding: 0 2px; }
+}
+
+header .container {
+    padding-left: 40px;
+    padding-right: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+.incontrol-badge {
+    height: 23px;           /* Высота под размер текста (можете поменять на 18px или 20px) */
+    width: auto;            /* Ширина подстроится автоматически, сохраняя пропорции */
+    vertical-align: middle; /* Центрируем по вертикали относительно текста */
+    margin-left: 0px;       /* Отступ слева, чтобы не прилипало к тексту */
+    margin-right: 2px;      /* Небольшой отступ справа */
+    position: relative;
+    top: -1px;              /* Легкий подъем вверх (опционально, для визуальной центровки) */
+    object-fit: contain;    /* На всякий случай, чтобы картинка не обрезалась */
+    border: none !important; /* УБИРАЕМ РАМКУ (важно, если рамка задана глобально) */
+    background: transparent; /* Убираем фон, если он вдруг есть */
+    box-shadow: none !important; /* Убираем тень, если она была */
+}
+#incontrolPendingReminder {
+    position: fixed;
+    right: 1rem;
+    bottom: calc(1rem + env(safe-area-inset-bottom));
+    z-index: 1025;
+}
+
+#incontrolPendingReminder:not([hidden]) ~ div .toast-container {
+    bottom: calc(4rem + env(safe-area-inset-bottom)) !important;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    #incontrolPendingReminder:not([hidden]) {
+        animation: incontrol-pending-pulse 2.4s ease-in-out infinite;
     }
-    .badge-1 { background-color: #0777ff; } /* МГТ0105-21 - 8 контракт */
-    .badge-2 { background-color: #15a60e; } /* 216644 - 2 контракт*/
-    .badge-3 { background-color: #df8605; } /* 222150 - 6 контракт */
-    .badge-unknown { background-color: #6c757d; } /* неизвестный контракт - серый */
+}
+
+@keyframes incontrol-pending-pulse {
+    50% { box-shadow: 0 0 0 .35rem rgba(255, 193, 7, .35); }
+}

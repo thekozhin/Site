@@ -1,0 +1,44 @@
+<div class="border rounded px-2 py-1 d-inline-flex align-items-center"
+                         style="background:#f8f9fa; font-size:15px; width: fit-content;">
+
+                        <!-- Всего заявок -->
+                        <strong title="Все заявки">
+                            Всего заявок: {{ in_repair_count }}
+                        </strong>
+
+                        <!-- Разделитель + Без ТО -->
+                        <strong class="ms-2 ps-2 border-start text-danger" title="Без:&#10;— ТО&#10;— Нет заявки&#10;— Готов">
+                            {{ not_all }}
+                        </strong>
+
+                        {% if selected_park in ['1 парк', 'Красная Пахра'] %}
+                            <span class="ms-2 ps-2 border-start">
+                                Автобусов -
+                                <span style="color:red;">{{ diesel_count }}</span>
+                            </span>
+                            <span class="ms-2">
+                                Электробусов -
+                                <span style="color:blue;">{{ elbus_count }}</span>
+                            </span>
+                        {% endif %}
+
+                        <!-- Правая часть -->
+                        <div class="border-start ms-2 ps-2">
+                            <span class="badge border border-primary text-primary bg-transparent ms-1"
+                                  style="font-size:0.875rem; font-weight:100;">
+                                Заявок за смену {{ shift_tasks_count }}
+                            </span>
+                            <span class="badge border border-secondary text-secondary bg-transparent ms-1"
+                                  style="font-size:0.875rem; font-weight:100;">
+            Закрытых {{ closed_tasks_count }}
+        </span>
+                            <span class="badge border border-success text-success bg-transparent ms-1"
+                                  style="font-size:0.875rem; font-weight:100;">
+            Отработанных {{ completed_tasks_count }}
+        </span>
+                        </div>
+                        <strong class="ps-2">
+                            КТГ парка:
+                            <span class="ktg-badge {% if ktg_park is not none and ktg_park >= 95 %}val-good{% else %}val-bad{% endif %}">{{ ktg_park }} %</span>
+                        </strong>
+                    </div>

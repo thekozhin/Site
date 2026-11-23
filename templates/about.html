@@ -3,51 +3,269 @@
 {% block title %}Готовые задачи{% endblock %}
 
 {% block body %}
-        {% if current_user.is_authenticated %}
-<div class="mt-4">
-<h5>Закрытые заявки</h5>
-    <div class="list-group mt-3">
-        {% for task in tasks %}
-        <div class="list-group-item">
-            <div class="d-flex justify-content-between align-items-start">
-                <div class="flex-grow-1">
-                    <h5 class="mb-1">{{ task.board_number }}</h5>
-                    <p class="mb-1 text-muted">{{ task.description.replace('\n', ', ') }}</p>
-                    {% if task.completed_work %}
-                    <p class="mb-1 text-success small">{{ task.completed_work.replace('\n', ', ') }}</p>
-                    {% endif %}
+    {% if current_user.is_authenticated %}
+        {% if current_user.company == 'Сетранс' %}
+            <div class="mt-4">
+                <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+                    <h6 class="mb-0">Закрытые заявки</h6>
+
+                    <!-- Фильтр по датам (правее заголовка) -->
+                    <form id="dateFilterForm" action="{{ url_for('about') }}" method="GET" class="d-flex gap-2 align-items-center flex-wrap">
+                        <div class="input-group input-group-sm" style="max-width: 320px;">
+                            <span class="input-group-text">С</span>
+                            <input type="date" class="form-control" name="date_from"
+                                   value="{{ request.args.get('date_from', '') }}">
+                            <span class="input-group-text">По</span>
+                            <input type="date" class="form-control" name="date_to"
+                                   value="{{ request.args.get('date_to', '') }}">
+                            <button type="submit" class="btn btn-outline-secondary">
+                                <i class="bi bi-funnel"></i>
+                            </button>
+                            {% if request.args.get('date_from') or request.args.get('date_to') %}
+                                <a href="{{ url_for('about') }}" class="btn btn-outline-danger">
+                                    <i class="bi bi-x"></i>
+                                </a>
+                            {% endif %}
+                        </div>
+                    </form>
+
+                    <!-- Форма выгрузки с периодом дат -->
+                    <form id="exportForm" action="{{ url_for('export_all_tasks') }}" method="POST"
+                          class="d-flex gap-2 align-items-center flex-wrap">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="input-group input-group-sm">
+                            <select class="form-select" name="filter_type" style="max-width: 160px;">
+                                <option value="created" selected>По созданию</option>
+                                <option value="completed">По закрытию</option>
+                            </select>
+
+                            <span class="input-group-text">С:</span>
+                            <input type="date" class="form-control" name="export_date_start" required>
+                            <input type="number" class="form-control" name="export_hour_start" min="0" max="23"
+                                   value="8" style="max-width: 65px;" title="Час начала">
+
+                            <span class="input-group-text">По:</span>
+                            <input type="date" class="form-control" name="export_date_end" required>
+                            <input type="number" class="form-control" name="export_hour_end" min="0" max="23" value="8"
+                                   style="max-width: 65px;" title="Час окончания">
+
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-download"></i> Выгрузить
+                            </button>
+                        </div>
+                    </form>
                 </div>
-                <div class="text-end ms-3" style="min-width: 180px;">
-                    <div class="text-muted small">
-                        {{ task.created_at.strftime('%d.%m.%y %H:%M') }}
+
+                <!-- Индикатор активного фильтра -->
+                {% if request.args.get('date_from') or request.args.get('date_to') %}
+                    <div class="alert alert-info alert-sm py-1 px-2 mb-2 d-inline-block" style="font-size: 0.85rem;">
+                        <i class="bi bi-funnel-fill"></i>
+                        Фильтр по датам:
+                        {% if request.args.get('date_from') %}с {{ request.args.get('date_from') }}{% endif %}
+                        {% if request.args.get('date_to') %} по {{ request.args.get('date_to') }}{% endif %}
+                        <a href="{{ url_for('about') }}" class="text-danger ms-2">
+                            <i class="bi bi-x-circle"></i> сбросить
+                        </a>
                     </div>
-                    <div class="text-success small">
-                        {{ task.completed_at.strftime('%d.%m.%y %H:%M') }}
-                    </div>
+                {% endif %}
+
+                <div class="list-group mt-3">
+                    {% for task in tasks %}
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="flex-grow-1">
+                                    <h5 class="mb-1 d-flex justify-content-between">
+                                        <span class="d-inline-flex align-items-center gap-2">
+                                            <span>{{ task.board_number }}</span>
+                                            {% if task.comment %}
+                                                <a href="#"
+                                                   class="text-decoration-none comment-option"
+                                                   data-bs-toggle="modal"
+                                                   data-bs-target="#commentModal-{{ task.id }}"
+                                                   data-task-id="{{ task.id }}"
+                                                   title="Комментарий">
+                                                    <i class="bi bi-chat-square-text" style="font-size: 0.85rem;"></i>
+                                                </a>
+                                            {% endif %}
+
+                                            <small class="text-muted fw-normal" style="font-size: 0.85rem;">
+                                                {% if task.vehicle_vin %}
+                                                    {{ task.vehicle_vin }}
+                                                {% endif %}
+                                                {% if task.vehicle_gos_number %}
+                                                    {% if task.vehicle_vin %}&nbsp;|&nbsp;{% endif %}
+                                                    {{ task.vehicle_gos_number }}
+                                                {% endif %}
+                                            </small>
+
+                                            {% if task.print %}
+                                                <i class="bi bi-printer text-primary" title="Заказ-наряд распечатан"
+                                                   style="font-size: 0.8rem;"
+                                                ></i>
+                                            {% endif %}
+
+                                        </span>
+                                    </h5>
+                                    <p class="mb-1 text-muted">Причина: {{ task.description.replace('\n', ', ') }}</p>
+                                    {% if task.completed_work %}
+                                        <p class="mb-1 text-success small">
+                                            {{ 'Отклонено' if task.reject else 'Выполнено' }}: {{ (task.completed_work | completed_work_text).replace('\n', ', ') }}</p>
+                                    {% endif %}
+                                </div>
+                                <div class="text-end ms-3" style="min-width: 250px;">
+                                    <div class="d-flex justify-content-end align-items-center text-muted small fw-normal gap-2 mb-1"
+                                         style="white-space: nowrap;">
+                                        <span>{{ format_datetime(task.created_at, '%d.%m.%y %H:%M') }}</span>
+                                        {% if task.work_in %}
+                                            <span class="text-info">
+                                        {{ format_datetime(task.work_in, '%d.%m.%y %H:%M') }}
+                                        </span>
+                                        {% endif %}
+                                        {% if task.author_open %}
+                                            <span class="badge bg-light text-info border" title="Кем открыта заявка">
+                                                {{ task.author_open }}
+                                            </span>
+                                        {% endif %}
+                                    </div>
+                                    {% if task.completed_at %}
+                                        <div class="text-success small">
+                                            Закрыт {{ format_datetime(task.completed_at, '%d.%m.%y %H:%M') }}
+                                            <span class="badge bg-light text-success border">
+                                                    {{ task.author_closed }}
+                                                    </span>
+                                        </div>
+                                    {% endif %}
+{#                                   {% if selected_park != '14 парк' %}#}
+                                        <div class="mt-2 d-flex justify-content-end gap-1">
+                                        <a href="{{ url_for('print_completed_task', task_id=task.id) }}"
+                                           class="btn btn-sm btn-outline-primary">
+                                            Скачать заказ-наряд
+                                        </a>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                data-bs-toggle="modal" data-bs-target="#editTaskModal-{{ task.id }}"
+                                                title="Редактировать заказ-наряд">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                    </div>
+{#                                     {% endif %}#}
+                                </div>
+                            </div>
+                        </div>
+                        {% if task.comment %}
+                            <div class="modal fade" id="commentModal-{{ task.id }}" tabindex="-1"
+                                 aria-labelledby="commentModalLabel-{{ task.id }}" aria-hidden="true">
+                                <div class="modal-dialog">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title" id="commentModalLabel-{{ task.id }}">
+                                                Комментарий к борту {{ task.board_number }}
+                                            </h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                                    aria-label="Close"></button>
+                                        </div>
+                                        <div class="modal-body" style="white-space: pre-wrap;">{{ task.comment }}</div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                                                Закрыть
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Модальное окно для редактирования заказ-наряда -->
+                        <div class="modal fade" id="editTaskModal-{{ task.id }}" tabindex="-1"
+                             aria-labelledby="editTaskModalLabel-{{ task.id }}" aria-hidden="true">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title" id="editTaskModalLabel-{{ task.id }}">Редактировать
+                                            заказ-наряд для борта {{ task.board_number }}</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                                aria-label="Close"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <form method="POST" action="{{ url_for('edit_task_order', task_id=task.id) }}"
+                                              class="mt-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <div class="mb-3">
+                                                <label for="work_in-{{ task.id }}" class="form-label">Дата начала
+                                                    работ:</label>
+                                                <input type="datetime-local" class="form-control"
+                                                       id="work_in-{{ task.id }}" name="work_in"
+                                                       value="{{ format_datetime(task.work_in, '%Y-%m-%dT%H:%M') if task.work_in else '' }}">
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="submit" class="btn btn-primary">Сохранить</button>
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                                                    Отмена
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <!-- Pagination Controls -->
+                {% if pagination.total > pagination.per_page %}
+                    <nav aria-label="Page navigation" class="mt-4">
+                        <ul class="pagination justify-content-center">
+                            <!-- Previous Page -->
+                            <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                                <a class="page-link" href="
+                                        {% if pagination.has_prev %}{{ url_for('about', page=pagination.prev_num, search=search_term, date_from=request.args.get('date_from'), date_to=request.args.get('date_to')) }}{% else %}#{% endif %}"
+                                   aria-label="Previous">
+                                    <span aria-hidden="true">&laquo;</span>
+                                </a>
+                            </li>
+                            <!-- Page Numbers -->
+                            {% for page_num in pagination.iter_pages(left_edge=2, left_current=2, right_current=3, right_edge=2) %}
+                                {% if page_num %}
+                                    <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
+                                        <a class="page-link"
+                                           href="{{ url_for('about', page=page_num, search=search_term, date_from=request.args.get('date_from'), date_to=request.args.get('date_to')) }}">{{ page_num }}</a>
+                                    </li>
+                                {% else %}
+                                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                                {% endif %}
+                            {% endfor %}
+                            <!-- Next Page -->
+                            <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                                <a class="page-link" href="
+                                        {% if pagination.has_next %}{{ url_for('about', page=pagination.next_num, search=search_term, date_from=request.args.get('date_from'), date_to=request.args.get('date_to')) }}{% else %}#{% endif %}"
+                                   aria-label="Next">
+                                    <span aria-hidden="true">&raquo;</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </nav>
+                {% endif %}
+            </div>
+        {% else %}
+            <div class="container mt-4">
+                <div class="alert alert-danger" role="alert">
+                    У вас нет доступа к этой странице.
                 </div>
             </div>
+        {% endif %}
+    {% else %}
+        <div class="container mt-4">
+            <div class="alert alert-danger" role="alert">
+                У вас нет доступа к этой странице.
+            </div>
         </div>
-        {% endfor %}
-    </div>
-</div>
     {% endif %}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const searchInput = document.querySelector('.form-control-dark');
-    const taskItems = document.querySelectorAll('.list-group-item');
 
-    searchInput.addEventListener('input', function() {
-        const searchTerm = this.value.toLowerCase();
-
-        taskItems.forEach(item => {
-            const text = item.textContent.toLowerCase();
-            if (text.includes(searchTerm)) {
-                item.style.display = '';
-            } else {
-                item.style.display = 'none';
-            }
-        });
-    });
-});
-</script>
+    {% if request.args.get('open_edit_modal') %}
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                var modal = new bootstrap.Modal(document.getElementById('editTaskModal-{{ request.args.get("open_edit_modal") }}'));
+                modal.show();
+            });
+        </script>
+    {% endif %}
 {% endblock %}

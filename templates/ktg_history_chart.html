@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="container-fluid mt-3">
+  <div class="d-flex align-items-center mb-3 flex-wrap gap-3">
+    <h4 class="mb-0">История КТГ</h4>
+
+    <form method="get" action="{{ url_for('ktg_history_chart') }}" class="d-flex align-items-center gap-2">
+      <label for="park" class="mb-0">Парк:</label>
+      <select id="park" name="park" class="form-select form-select-sm" onchange="this.form.submit()">
+        {% for p in available_parks %}
+          <option value="{{ p }}" {% if p == selected_park %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+
+      <label for="period" class="mb-0 ms-2">Период:</label>
+      <select id="period" name="period" class="form-select form-select-sm" onchange="this.form.submit()">
+        {% for key, label in available_periods %}
+          <option value="{{ key }}" {% if key == selected_period %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </form>
+
+    <button id="refreshBtn" class="btn btn-sm btn-outline-primary">Обновить</button>
+    <span id="lastUpdated" class="text-muted small"></span>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <div style="position: relative; height: 60vh; min-height: 360px;">
+        <canvas id="ktgChart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  const PARK = {{ selected_park|tojson }};
+  const PERIOD = {{ selected_period|tojson }};
+  const API_URL = "{{ url_for('api_ktg_history') }}";
+
+  const ctx = document.getElementById('ktgChart').getContext('2d');
+  let chart = null;
+
+  async function loadData() {
+    if (!PARK) {
+      document.getElementById('lastUpdated').textContent = 'Парк не выбран';
+      return;
+    }
+
+    const params = new URLSearchParams({ park: PARK, period: PERIOD });
+    if (PERIOD === 'day') params.set('limit', '10');
+
+    const resp = await fetch(`${API_URL}?${params.toString()}`, {
+      headers: { 'Accept': 'application/json' }
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      document.getElementById('lastUpdated').textContent =
+        'Ошибка: ' + (err.error || resp.status);
+      return;
+    }
+
+    const data = await resp.json();
+    document.getElementById('lastUpdated').textContent =
+      `обновлено ${new Date().toLocaleTimeString()}`;
+
+    if (chart) chart.destroy();
+
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: data.labels,
+        datasets: [
+          {
+            label: 'КТГ парка, %',
+            data: data.ktg_park,
+            yAxisID: 'yPercent',
+            borderColor: 'rgba(54, 162, 235, 1)',
+            backgroundColor: 'rgba(54, 162, 235, 0.15)',
+            tension: 0.25,
+            spanGaps: true,
+            pointRadius: 3,
+            fill: false,
+          },
+          {
+            label: 'Машин в ремонте, шт.',
+            data: data.in_repair,
+            yAxisID: 'yCount',
+            borderColor: 'rgba(255, 99, 132, 1)',
+            backgroundColor: 'rgba(255, 99, 132, 0.15)',
+            tension: 0.25,
+            pointRadius: 3,
+            fill: false,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) {
+                const v = ctx.parsed.y;
+                if (v === null || v === undefined) return `${ctx.dataset.label}: —`;
+                if (ctx.dataset.yAxisID === 'yPercent') {
+                  return `${ctx.dataset.label}: ${v}%`;
+                }
+                return `${ctx.dataset.label}: ${v}`;
+              }
+            }
+          }
+        },
+        scales: {
+          yPercent: {
+            type: 'linear',
+            position: 'left',
+            min: 70,
+            max: 100,
+            title: { display: true, text: 'КТГ, %' },
+            ticks: { callback: v => v + '%' },
+          },
+          yCount: {
+            type: 'linear',
+            position: 'right',
+            beginAtZero: true,
+            title: { display: true, text: 'Машин в ремонте, шт.' },
+            grid: { drawOnChartArea: false },
+            ticks: { precision: 0 },
+          },
+          x: {
+            title: { display: true, text: 'Дата и время' },
+            ticks: { maxRotation: 45, minRotation: 0, autoSkip: true },
+          },
+        },
+      },
+    });
+  }
+
+  document.getElementById('refreshBtn').addEventListener('click', loadData);
+  loadData();
+  {#setInterval(loadData, 60000);#}
+})();
+</script>
+{% endblock %}
