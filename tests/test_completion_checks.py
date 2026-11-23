@@ -191,6 +191,23 @@ def test_reject_also_requires_success(completion, monkeypatch):
     assert saved_task(completion).reject is True
 
 
+def test_reject_using_only_the_reason_preserves_saved_work_time(completion, monkeypatch):
+    mod, client, task_id = completion
+    task = saved_task(completion)
+    previous_start = mod.incontrol_now().replace(microsecond=0) - timedelta(hours=1)
+    task.work_in = previous_start
+    mod.db.session.commit()
+    job, _ = run_check(completion, monkeypatch)
+
+    response = client.post(f'/complete_task/{task_id}', data={
+        'main_outcome': 'reject', 'action': 'reject', 'completed_work': 'Борт на линии',
+        'completion_check_id': job['check_id'],
+    })
+    assert response.status_code == 302
+    task = saved_task(completion)
+    assert task.reject is True and task.work_in == previous_start
+
+
 def test_to_checks_service_work_and_saves_seasonal_service(completion, monkeypatch):
     mod, _, _ = completion
     task = saved_task(completion)

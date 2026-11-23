@@ -30,6 +30,16 @@ window.CompletionCheckController = class CompletionCheckController {
         }
     }
 
+    showOutcomeFields(mode) {
+        const details = document.getElementById('completionWorkDetails');
+        details.hidden = mode !== 'complete';
+        details.disabled = details.hidden && !this.options.resumeId;
+        this.form.elements.mileage.required = !details.hidden;
+        const submit = document.getElementById('confirmCompleteBtn');
+        submit.classList.toggle('btn-success', mode === 'complete');
+        submit.classList.toggle('btn-danger', mode === 'reject');
+    }
+
     clearFlash() {
         if (!this.notification) return;
         bootstrap.Toast.getInstance(this.notification)?.dispose();

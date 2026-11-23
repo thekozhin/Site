@@ -2727,7 +2727,8 @@ def complete_task(task_id):
             task.mileage = m_val
             if vehicle:
                 vehicle.mileage = m_val
-        task.work_in = work_in
+        if not is_reject or 'work_in' in request.form:
+            task.work_in = work_in
         if vehicle and is_to_schedule_task(task):
             vehicle.seasonal_service = request.form.get('seasonal_service', '0') == '1'
 

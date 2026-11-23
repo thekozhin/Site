@@ -8,7 +8,6 @@ window.IncontrolPlan = class IncontrolPlan {
         this.work=this.form.elements.completed_work;
         this.workWrapper=this.work.closest('.mb-3');
         this.confirm=document.getElementById('confirmCompleteBtn');
-        this.reject=this.form.querySelector('button[value="reject"]');
         this.modeInputs=[...this.form.querySelectorAll('input[name="main_outcome"]')];
         this.workLabel=this.workWrapper.querySelector('label');
         this.details=document.getElementById('closingDetails');
@@ -45,7 +44,7 @@ window.IncontrolPlan = class IncontrolPlan {
                 this.c.error.hidden=true;this.c.retryButton.hidden=true;
                 try {await this.c.json(this.c.job.action_url,data);await this.c.poll();}catch(e){this.c.fail(e);}
             });
-            this.container.append(label,select);this.workWrapper.hidden=true;this.work.required=false;this.confirm.disabled=true;this.reject.hidden=true;
+            this.container.append(label,select);this.workWrapper.hidden=true;this.work.required=false;this.confirm.disabled=true;
             return;
         }
         if (!this.items.length) {
@@ -59,8 +58,8 @@ window.IncontrolPlan = class IncontrolPlan {
             }
             this.cards=[];this.locked=locked;this.applyMode();return;
         }
-        this.workWrapper.hidden=true;this.work.required=false;this.reject.hidden=true;this.locked=locked;
-        const heading=document.createElement('p');heading.className='fw-semibold mb-2';heading.textContent='Описание заявки';this.container.append(heading);
+        this.workWrapper.hidden=true;this.work.required=false;this.locked=locked;
+        const heading=document.createElement('p');heading.className='fw-semibold mb-2';heading.textContent='Описание заявки:';this.container.append(heading);
         const saved=new Map((state.decisions || []).map(item=>[item.id,item]));
         if (locked && state.decisions?.length) this.field.value=JSON.stringify(state.decisions);
         this.cards=[];
@@ -99,6 +98,7 @@ window.IncontrolPlan = class IncontrolPlan {
     applyMode() {
         const mode=this.mainMode();
         this.details.hidden=!mode;
+        this.c.showOutcomeFields(mode);
         if (!mode) {this.confirm.disabled=true;return;}
         if (!this.locked) this.form.querySelector('#hidden_action').value=mode==='reject'?'reject':'';
         const hasChildren=Boolean(this.items?.length);
@@ -109,20 +109,17 @@ window.IncontrolPlan = class IncontrolPlan {
             else if (!hasChildren) this.work.value=this.generalDraft;
         }
         this.lastMode=mode;
-        this.reject.hidden=true;
         if (!Array.isArray(this.items)) {
             this.description.hidden=true;this.workWrapper.hidden=true;this.work.required=false;
             this.confirm.disabled=true;return;
         }
         this.container.hidden=!this.container.hasChildNodes() || (hasChildren && mode==='reject');
-        this.description.hidden=hasChildren && mode==='complete';
+        this.description.hidden=hasChildren || mode==='reject';
         this.workWrapper.hidden=hasChildren && mode==='complete';
         this.work.required=!this.workWrapper.hidden;
         this.workLabel.textContent=mode==='reject'?'Причина отклонения:':'Выполненные работы:';
         if (mode==='reject' && !this.locked) this.field.value='';
         this.setConfirmLabel(this.c.offlineActive ? 'Закрыть в Сетранс' : 'Завершить');
-        this.confirm.classList.toggle('btn-success',mode==='complete');
-        this.confirm.classList.toggle('btn-danger',mode==='reject');
         this.update();
     }
     update() {

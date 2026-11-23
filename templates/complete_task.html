@@ -61,10 +61,12 @@
                                       required>{{ completed_work_value if completed_work_value else '' }}</textarea>
                         </div>
 
+                        <fieldset id="completionWorkDetails" {{ 'hidden' if main_mode != 'complete' else '' }}
+                                  {{ 'disabled' if main_mode != 'complete' and not request.args.get('rejection_run') else '' }}>
                         <div class="mb-3">
                             <label for="mileage" class="form-label">Пробег (км):</label>
                             <input type="number" class="form-control" id="mileage" name="mileage"
-                                   value="{{ mileage_value if mileage_value is defined else current_mileage }}" required>
+                                   value="{{ mileage_value if mileage_value is defined else current_mileage }}" {{ 'required' if main_mode == 'complete' else '' }}>
                         </div>
 
                         <div class="mb-3">
@@ -96,6 +98,8 @@
                             </div>
                         </div>
 
+                        </fieldset>
+
                         {% if incontrol_rejection_enabled and uses_inline_incontrol(task) %}
                         <p class="small text-muted" id="incontrolSignatureHint">При закрытии автоматически проверим и подпишем документы InControl под вашим личным аккаунтом. Если InControl запросит код, введите его здесь.</p>
                         {% endif %}
@@ -106,7 +110,6 @@
                                 <span class="spinner-border spinner-border-sm me-1" id="completionCheckSpinner" hidden aria-hidden="true"></span>
                                 Завершить
                             </button>
-                            <button type="submit" name="action" value="reject" class="btn btn-danger">Отклонить</button>
                             <span class="text-muted small" id="completionCheckMessage" role="status" aria-live="polite" hidden></span>
                         </div>
 
@@ -196,8 +199,8 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/completion-check.js', v='offline-3') }}"></script>
-    <script src="{{ url_for('static', filename='js/incontrol-plan.js', v='confirm-incontrol-match') }}"></script>
+    <script src="{{ url_for('static', filename='js/completion-check.js', v='outcome-fields') }}"></script>
+    <script src="{{ url_for('static', filename='js/incontrol-plan.js', v='outcome-fields') }}"></script>
     <script src="{{ url_for('static', filename='js/incontrol-inline.js', v='offline-11') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
@@ -214,10 +217,11 @@
             if (!completionCheck.plan) {
                 const details=document.getElementById('closingDetails');
                 const confirm=document.getElementById('confirmCompleteBtn');
-                const reject=form.querySelector('button[value="reject"]');
                 const refreshChoice=()=>{
                     const mode=form.querySelector('input[name="main_outcome"]:checked')?.value;
-                    details.hidden=!mode;confirm.disabled=!mode;reject.hidden=true;
+                    details.hidden=!mode;confirm.disabled=!mode;
+                    completionCheck.showOutcomeFields(mode);
+                    document.getElementById('closureDescription').hidden=mode==='reject';
                     form.querySelector('label[for="completed_work"]').textContent=mode==='reject'?'Причина отклонения:':'Выполненные работы:';
                     document.getElementById('hidden_action').value=mode==='reject'?'reject':'';
                 };
@@ -227,7 +231,6 @@
             const workInInput = document.getElementById('work_in-{{ task.id }}');
             const workInDateInput = document.getElementById('work_in_date-{{ task.id }}');
             const workInTimeInput = document.getElementById('work_in_time-{{ task.id }}');
-            const rejectBtn = document.querySelector('button[value="reject"]');
             const completedWorkInput = document.getElementById('completed_work');
             const confirmCompleteBtn = document.getElementById('confirmCompleteBtn');
             const hiddenActionInput = document.getElementById('hidden_action');
@@ -296,24 +299,12 @@
             }
 
             // 2. Логика формы
-            if (rejectBtn) {
-                rejectBtn.addEventListener('click', function () {
-                    const now = new Date();
-                    const tzOffset = now.getTimezoneOffset() * 60000;
-                    const localNow = new Date(now - tzOffset).toISOString();
-                    if (workInDateInput) workInDateInput.value = localNow.slice(0, 10);
-                    if (workInTimeInput) workInTimeInput.value = localNow.slice(11, 16);
-                    updateWorkInInput();
-                    hiddenActionInput.value = 'reject';
-                });
-            }
-
             form.addEventListener('submit', function (e) {
                 e.preventDefault();
                 if (completionCheck.busy || completionCheck.submitting) return;
                 const decisionMode = completionCheck.plan?.prepare() ?? form.querySelector('input[name="main_outcome"]:checked')?.value;
                 if (decisionMode === false || !decisionMode) return;
-                hiddenActionInput.value = decisionMode ? (decisionMode === 'reject' ? 'reject' : '') : (e.submitter === rejectBtn ? 'reject' : '');
+                hiddenActionInput.value = decisionMode === 'reject' ? 'reject' : '';
 
                 if (hiddenActionInput.value !== 'reject') {
                     const workInValueString = updateWorkInInput();
