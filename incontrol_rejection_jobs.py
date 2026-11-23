@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 
 from incontrol_accounts import credential_cipher, PersonalAccountError
 from incontrol_rejection import RejectionFlow, RejectionError, find_open_main_tasks
-from incontrol_completion import normalized_name
+from incontrol_completion import is_service_request, normalized_name
 from incontrol_fulfillment import FulfillmentFlow
 from incontrol import PARK_TO_ORG, is_incontrol_unavailable
 from incontrol_session import capture_session, restore_session, ensure_session
@@ -230,6 +230,7 @@ class IncontrolRejections:
                     raise RejectionError('Автоматическая отписка в InControl выключена для этого парка.')
                 if task.status != 'in_repair' or self.checks.fingerprint(task) != payload['fingerprint']:
                     raise RejectionError('Локальная заявка изменилась или уже закрыта. Требуется ручная проверка.')
+                scheduled_service = bool(task.id_to or task.tag == 'to')
                 if not task.incontrol_task_id and not payload.get('confirmed_remote_id'):
                     # Старый план мог выбрать единственную заявку сам, до подтверждения приёмщиком.
                     payload.update(hint_id=None, remote_id=None, selected_id=None)
@@ -293,6 +294,10 @@ class IncontrolRejections:
                         row.updated_at = now()
                         self.db.session.commit()
                         return
+                    if not selected and scheduled_service:
+                        service_requests = [item['id'] for item in found if is_service_request(item)]
+                        if len(service_requests) == 1:
+                            selected = service_requests[0]
                     if not selected:
                         payload['candidates'] = [{'id':x['id'], 'title':(x.get('type_work') or {}).get('work_name','Заявка'),
                                                   'description':x.get('task_description') or ''} for x in found]

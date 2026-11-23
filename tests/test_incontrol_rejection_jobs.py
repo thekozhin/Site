@@ -325,6 +325,45 @@ def test_worker_checks_service_for_repair_label_and_blocks_ambiguous_board(rejec
     flow.assert_not_called()
 
 
+@pytest.mark.parametrize(('extra_type', 'expected'), [
+    (None, 'plan'), ('Заявка на ремонт', 'plan'), ('Заявка на сервисное обслуживание', 'choose'),
+])
+def test_planned_service_opens_unique_service_request_without_selection(rejection_page, monkeypatch, extra_type, expected):
+    import incontrol_rejection_jobs as jobs
+    mod, _, task, _, _ = rejection_page
+    task.incontrol_task_id = None
+    task.id_to = '5228'
+    task.description = 'ТО1 75000'
+    mod.db.session.commit()
+    row = start(rejection_page)
+    client = Mock(_refresh_token=None)
+    client.session.headers = {'Authorization': 'JWT test-access'}
+    monkeypatch.setattr(mod.incontrol_rejections, 'personal_client', lambda _: client)
+    found = [{'id': 21711653, 'type_work': {'work_name': 'Заявка на сервисное обслуживание'}}]
+    if extra_type:
+        found.append({'id': 21711654, 'type_work': {'work_name': extra_type}})
+    monkeypatch.setattr(jobs, 'find_open_main_tasks', lambda *_: found)
+    flow = Mock()
+    monkeypatch.setattr(jobs, 'RejectionFlow', flow)
+    children = [{'id': 21, 'title': 'ТО-1 НЕФАЗ 5299', 'phase': 'Принято.'}]
+    read_children = Mock(return_value=(found[0], children))
+    monkeypatch.setattr(jobs, 'read_children', read_children)
+    run_id = row.id
+    mod.incontrol_rejections.slots.acquire()
+    mod.incontrol_rejections.worker(run_id, 'inspect', None)
+    mod.db.session.expire_all()
+    saved = mod.db.session.get(mod.incontrol_rejections.model, run_id)
+    assert saved.state == expected
+    assert saved.remote_id is None and task.incontrol_task_id is None
+    flow.return_value.advance.assert_not_called()
+    if expected == 'plan':
+        payload = mod.incontrol_rejections.unpack(saved)
+        assert payload['remote_id'] == 21711653 and payload['child_plan'] == children
+        read_children.assert_called_once()
+    else:
+        read_children.assert_not_called()
+
+
 @pytest.mark.parametrize('has_current',[False,True])
 def test_worker_keeps_latest_personal_session_and_uses_job_only_as_fallback(rejection_page,monkeypatch,has_current):
     import time
