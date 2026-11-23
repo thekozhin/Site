@@ -35,7 +35,6 @@ from yandex_oauth import YandexMailOAuth
 PILOT_FOLDERS = {'14 парк': INBOX}
 RETRY_MINUTES = (1, 5, 15)
 SENT_STEPS = ('sent_copy', 'sent_mark')
-SUPPLEMENT_SUBJECT = re.compile(r'\bдополнение\b', re.IGNORECASE)
 
 
 class YandexRequests:
@@ -291,17 +290,11 @@ class YandexRequests:
             active_repairs = active_repairs_for_board(self.Task, ticket.board_number).with_for_update().all()
             if active_repairs:
                 same_board = [row for row in active_repairs if (row.park, row.board_number) == (park, ticket.board_number)]
-                supplement = SUPPLEMENT_SUBJECT.search(ticket.subject)
                 matched = []
                 for row in same_board:
                     latest = self._links(row.id).with_for_update().first()
                     if latest is None or latest.mailbox != mailbox or latest.recipient.casefold() != ticket.recipient.casefold():
                         continue
-                    if not supplement:
-                        if received_at >= latest.received_at or not all(
-                            SUPPLEMENT_SUBJECT.search(link.subject) for link in self._links(row.id).all()
-                        ):
-                            continue
                     matched.append((row, latest))
                 manual_tasks = manual_repair_candidates(
                     active_repairs, park, excluded_authors=(MAIL_TASK_AUTHOR, 'InControl', 'Система'),

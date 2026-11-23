@@ -159,7 +159,7 @@ def test_immediate_reply_reopens_imap_before_retry(app_ctx, monkeypatch):
 
 
 def mail_message(original_id, ticket_number, board='164076', sheet_board=None, *,
-                 defects=('Течь рулевой рейки', 'Стук'), subject=None):
+                 defects=('Течь рулевой рейки', 'Стук'), subject=None, sender='repair@example.org'):
     workbook = Workbook()
     sheet = workbook.active
     sheet['Q1'], sheet['AH1'] = 'ЗАЯВКА НА РЕМОНТ №', ticket_number
@@ -172,7 +172,7 @@ def mail_message(original_id, ticket_number, board='164076', sheet_board=None, *
     workbook.save(attachment)
 
     message = EmailMessage()
-    message['From'] = 'Приёмка <repair@example.org>'
+    message['From'] = f'Приёмка <{sender}>'
     message['To'] = ADDRESS
     message['Subject'] = subject or board
     message['Message-ID'] = original_id
@@ -359,7 +359,7 @@ def test_import_distinguishes_repair_numbers_and_skips_replies(app_ctx, caplog):
     args = mail, ADDRESS, {PARK: FOLDER}, received.date()
     first = mod.yandex_requests.import_requests(*args, apply=True)
     mail.reply_parents_since.assert_called_once_with(received.date())
-    assert first == dict(created=1, linked=0, duplicate=1, active_board=1, answered=1, invalid=1, unknown_board=0, preview=0)
+    assert first == dict(created=1, linked=1, duplicate=1, active_board=0, answered=1, invalid=1, unknown_board=0, preview=0)
     assert 'Яндекс Почта | 14 парк | Добавлены борта 164076' in caplog.text
     caplog.clear()
     second = mod.yandex_requests.import_requests(*args, apply=True)
@@ -369,7 +369,9 @@ def test_import_distinguishes_repair_numbers_and_skips_replies(app_ctx, caplog):
     assert {task.tag for task in mod.Task.query} == {'waiting'}
 
 
-def test_supplement_replaces_description_and_each_letter_gets_one_reply(app_ctx):
+@pytest.mark.parametrize('subject', ['162828 Новое', '162828 ДОПОЛНЕНИЕ', '162828'])
+@pytest.mark.parametrize('latest_first', [False, True])
+def test_new_mail_with_board_in_subject_replaces_description_and_gets_its_own_reply(app_ctx, subject, latest_first):
     mod = app_ctx
     requests = mod.yandex_requests
     mod.db.session.add(mod.Car(bort='162828', location=PARK))
@@ -378,14 +380,16 @@ def test_supplement_replaces_description_and_each_letter_gets_one_reply(app_ctx)
     new_id = '<supplement@example.org>'
     mail = fake_mail(received, {
         ORIGINAL_ID: mail_message(ORIGINAL_ID, 'УА160223600', '162828', defects=('Старое описание',)),
-        new_id: mail_message(new_id, 'УА160223601', '162828', subject='162828 ДОПОЛНЕНИЕ',
+        new_id: mail_message(new_id, 'УА160223601', '162828', subject=subject,
                              defects=('Новое описание', 'Фара ближнего света')),
     })
-    mail.unanswered.return_value = [[OriginalMail(b'1', new_id, received, '162828'),
-                                     OriginalMail(b'2', ORIGINAL_ID, received - timedelta(minutes=15), '162828')]]
     args = mail, ADDRESS, {PARK: 'INBOX'}, None
-    result = requests.import_requests(*args, apply=True)
-    assert (result['created'], result['linked']) == (1, 1)
+    latest = OriginalMail(b'1', new_id, received, '162828')
+    older = OriginalMail(b'2', ORIGINAL_ID, received - timedelta(minutes=15), '162828')
+    mail.unanswered.return_value = [[latest if latest_first else older]]
+    assert requests.import_requests(*args, apply=True)['created'] == 1
+    mail.unanswered.return_value = [[older, latest]]
+    assert requests.import_requests(*args, apply=True)['linked'] == 1
     assert requests.import_requests(*args, apply=True)['duplicate'] == 2
     task = mod.Task.query.one()
     assert task.description == 'Новое описание\nФара ближнего света'
@@ -443,7 +447,7 @@ def test_inbox_appends_new_defect_and_waits_for_board_before_importing_new_ticke
     second_id = '<another-ticket@example.org>'
     mail = fake_mail(received, {
         ORIGINAL_ID: mail_message(ORIGINAL_ID, 'УА160223263', defects=(*defects, extra)),
-        second_id: mail_message(second_id, 'УА160223264', defects=defects),
+        second_id: mail_message(second_id, 'УА160223264', defects=defects, sender='another@example.org'),
     })
     mail.unanswered.return_value = [[OriginalMail(b'1', ORIGINAL_ID, received, '164076'),
                                      OriginalMail(b'2', second_id, received, '164076')]]
