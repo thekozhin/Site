@@ -18,6 +18,7 @@ from pathlib import PurePath
 from zipfile import ZipFile
 from zoneinfo import ZoneInfo
 
+import xlrd
 from openpyxl import load_workbook
 from requests.certs import where as ca_bundle
 
@@ -35,6 +36,8 @@ BOARD = re.compile(r'(?<!\d)\d{6}(?!\d)')
 TICKET = re.compile(r'(?:[А-ЯЁA-Z]{1,8}\s*)?\d[\d/-]{4,24}')
 MESSAGE_ID = re.compile(r'<[^<>@\s\x00-\x1f\x7f]+@[^<>@\s\x00-\x1f\x7f]+>')
 MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+MAINTENANCE = re.compile(r'(?:(?:обслуживание техническое|техническое обслуживание)\s*)?'
+                         r'\(?\s*(?:то[\s–—-]*(1000|2500|[12])|(отм))\s*\)?(?:\s+\d+)?(?:\s*\+\s*со)?', re.IGNORECASE)
 
 
 class MailError(RuntimeError):
@@ -79,13 +82,24 @@ class RepairRequest:
 
 
 def _cell(value):
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
     return str(value).strip() if value is not None else ''
 
 
-def _repair_sheet(sheet):
-    rows = [tuple(map(_cell, row)) for row in sheet.iter_rows(max_row=120, max_col=64, values_only=True)]
+def maintenance_kind(description):
+    match = MAINTENANCE.fullmatch(' '.join((description or '').split()))
+    if match:
+        return f'ТО-{match[1]}' if match[1] else 'ОТМ'
+    return None
+
+
+def _repair_sheet(sheet_rows):
+    rows = [tuple(map(_cell, row)) for row in sheet_rows]
     markers = {}
     for i, row in enumerate(rows):
+        if any(v.casefold().startswith('технический акт') for v in row):
+            break
         for j, value in enumerate(row):
             label = ' '.join(value.casefold().split()).rstrip(':')
             if label.startswith('заявка на ремонт') and '№' in value:
@@ -94,7 +108,9 @@ def _repair_sheet(sheet):
                 markers.setdefault('board', (i, j))
             elif label == 'описание неисправности':
                 markers.setdefault('description', (i, j))
-    if not {'ticket', 'board', 'description'} <= markers.keys():
+            elif label == 'вид ремонта':
+                markers.setdefault('work_type', (i, j))
+    if not {'ticket', 'board'} <= markers.keys() or not markers.keys() & {'description', 'work_type'}:
         return None
 
     i, j = markers['ticket']
@@ -106,34 +122,44 @@ def _repair_sheet(sheet):
     if not TICKET.fullmatch(number) or len(boards) != 1:
         raise InvalidRequest('Номер заявки или борта в Excel не определён однозначно.')
 
-    i, j = markers['description']
     description = []
-    for row in rows[i + 1:]:
-        if any(v.casefold() == 'заказчик' or v.casefold().startswith('технический акт') for v in row):
+    for label in ('description', 'work_type'):
+        if label not in markers:
+            continue
+        i, j = markers[label]
+        for row in rows[i + 1:]:
+            if any(v.casefold() == 'заказчик' or v.casefold().startswith('технический акт') for v in row):
+                break
+            if j < len(row) and row[j] and (label == 'description' or maintenance_kind(row[j])):
+                description.append(row[j])
+        if description:
             break
-        if row[j]:
-            description.append(row[j])
+    if 'description' not in markers and not description:
+        return None
     text = '\n'.join(description)
     if not text or len(text.encode('utf-8')) > 32_000:
         raise InvalidRequest('В Excel нет подходящего описания неисправности.')
     return re.sub(r'\s+', '', number), boards.pop(), text
 
 
-def read_repair_workbook(payload):
+def read_repair_workbook(payload, suffix='.xlsx'):
     if not payload or len(payload) > MAX_WORKBOOK_SIZE:
         raise InvalidRequest('Размер вложения Excel превышает допустимый.')
     try:
-        with ZipFile(BytesIO(payload)) as archive:
-            entries = archive.infolist()
-            if len(entries) > 300 or sum(entry.file_size for entry in entries) > 20 * 1024 * 1024:
-                raise InvalidRequest('Содержимое Excel превышает допустимый размер.')
-        workbook = load_workbook(BytesIO(payload), read_only=True, data_only=True, keep_links=False)
-        try:
-            if len(workbook.worksheets) > 8:
-                raise InvalidRequest('Во вложении слишком много листов.')
-            requests = [parsed for sheet in workbook.worksheets if (parsed := _repair_sheet(sheet))]
-        finally:
-            workbook.close()
+        if suffix == '.xls':
+            workbook = xlrd.open_workbook(file_contents=payload, on_demand=True)
+            try:
+                if workbook.nsheets > 8:
+                    raise InvalidRequest('Во вложении слишком много листов.')
+                requests = []
+                for sheet in workbook.sheets():
+                    rows = (sheet.row_values(i, 0, min(sheet.ncols, 64)) for i in range(min(sheet.nrows, 120)))
+                    if parsed := _repair_sheet(rows):
+                        requests.append(parsed)
+            finally:
+                workbook.release_resources()
+        else:
+            requests = _read_xlsx(payload)
     except InvalidRequest:
         raise
     except Exception as exc:
@@ -141,6 +167,22 @@ def read_repair_workbook(payload):
     if len(requests) != 1:
         raise InvalidRequest('Во вложении должна быть одна заявка на ремонт.')
     return requests[0]
+
+
+def _read_xlsx(payload):
+    with ZipFile(BytesIO(payload)) as archive:
+        entries = archive.infolist()
+        if len(entries) > 300 or sum(entry.file_size for entry in entries) > 20 * 1024 * 1024:
+            raise InvalidRequest('Содержимое Excel превышает допустимый размер.')
+    workbook = load_workbook(BytesIO(payload), read_only=True, data_only=True, keep_links=False)
+    try:
+        if len(workbook.worksheets) > 8:
+            raise InvalidRequest('Во вложении слишком много листов.')
+        return [parsed for sheet in workbook.worksheets if (parsed := _repair_sheet(
+            sheet.iter_rows(max_row=120, max_col=64, values_only=True)
+        ))]
+    finally:
+        workbook.close()
 
 
 def _message_id(message):
@@ -167,11 +209,12 @@ def read_repair_message(raw, original):
     parts = (message,) if message.get_filename() else message.iter_attachments()
     for part in parts:
         name = PurePath(part.get_filename() or '')
-        if name.suffix.lower() == '.xlsx' and set(BOARD.findall(name.stem)) == {board}:
-            attachments.append(part)
+        if name.suffix.lower() in ('.xls', '.xlsx') and set(BOARD.findall(name.stem)) == {board}:
+            attachments.append((part, name.suffix.lower()))
     if len(attachments) != 1:
-        raise InvalidRequest('Нужно одно вложение .xlsx с номером борта из темы.')
-    ticket, sheet_board, description = read_repair_workbook(attachments[0].get_payload(decode=True))
+        raise InvalidRequest('Нужно одно вложение .xls или .xlsx с номером борта из темы.')
+    attachment, suffix = attachments[0]
+    ticket, sheet_board, description = read_repair_workbook(attachment.get_payload(decode=True), suffix)
     if sheet_board != board:
         raise InvalidRequest('Борт в письме и борт в Excel различаются.')
 

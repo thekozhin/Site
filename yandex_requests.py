@@ -26,6 +26,7 @@ from yandex_mail import (
     UncertainDelivery,
     YandexMailbox,
     build_reply,
+    maintenance_kind,
     read_repair_message,
 )
 from yandex_oauth import YandexMailOAuth
@@ -35,6 +36,7 @@ from yandex_oauth import YandexMailOAuth
 PILOT_FOLDERS = {'14 парк': INBOX}
 RETRY_MINUTES = (1, 5, 15)
 SENT_STEPS = ('sent_copy', 'sent_mark')
+MAINTENANCE_LOOKBACK = timedelta(days=1)
 
 
 class YandexRequests:
@@ -162,12 +164,22 @@ class YandexRequests:
             link.reply_next_at = None
         return queued
 
+    @staticmethod
+    def _planned_mail_kind(task):
+        if task.event_type or not (task.id_to or task.tag in ('to', 'otm')):
+            return None
+        description = (task.description or '').partition('\n')[0]
+        return maintenance_kind(description)
+
     def queue_reply_lookup(self, task):
-        if (not self.enabled() or task.park not in self.folders() or not task.author_open
-                or task.author_open in (MAIL_TASK_AUTHOR, 'InControl', 'Система')
-                or task.id_to or task.event_type or self.link_for(task) is not None):
+        if not self.enabled() or task.park not in self.folders() or task.event_type:
             return
-        task.yandex_reply_lookup = True
+        planned_kind = self._planned_mail_kind(task)
+        if not planned_kind and (not task.author_open or task.id_to or task.tag in ('to', 'otm')
+                                 or task.author_open in (MAIL_TASK_AUTHOR, 'InControl', 'Система')):
+            return
+        if self.link_for(task) is None:
+            task.yandex_reply_lookup = True
 
     def confirm_manual_reply(self, task_id, ticket_number, reported_at):
         self.model.query.filter(self.model.task_id == task_id, self.model.ticket_number == ticket_number,
@@ -208,12 +220,30 @@ class YandexRequests:
             self.reply_slots.release()
 
     def _latest_unanswered(self, mail, folder, task):
+        planned_kind = self._planned_mail_kind(task)
+        if planned_kind and task.created_at is None:
+            return None, None
+        start_at = task.created_at - MAINTENANCE_LOOKBACK if planned_kind else None
         candidates = []
-        for batch in mail.unanswered(folder, None, board_number=task.board_number):
-            candidates.extend(item for item in batch if item.board_number == task.board_number
-                              and item.received_at.astimezone(MOSCOW).replace(tzinfo=None) <= task.completed_at)
+        for batch in mail.unanswered(folder, start_at, board_number=task.board_number):
+            for item in batch:
+                received_at = item.received_at.astimezone(MOSCOW).replace(tzinfo=None)
+                if (item.board_number == task.board_number and received_at <= task.completed_at
+                        and (start_at is None or received_at >= start_at)):
+                    candidates.append(item)
         candidates.sort(key=lambda item: (item.received_at, int(item.uid)), reverse=True)
-        return next((item for item in candidates if not mail.has_reply(item.message_id, item.received_at)), None)
+        for item in candidates:
+            if mail.has_reply(item.message_id, item.received_at):
+                continue
+            try:
+                ticket = read_repair_message(mail.download(folder, item), item)
+            except InvalidRequest:
+                if not planned_kind:
+                    return item, None
+                continue
+            if maintenance_kind(ticket.description) == planned_kind:
+                return item, ticket
+        return None, None
 
     def resolve_reply_lookups(self, mail, address, folders, *, task_id=None):
         tasks = self.Task
@@ -225,13 +255,7 @@ class YandexRequests:
         self.db.session.remove()
         for task in pending:
             folder = folders[task.park]
-            original = self._latest_unanswered(mail, folder, task)
-            ticket = None
-            if original is not None:
-                try:
-                    ticket = read_repair_message(mail.download(folder, original), original)
-                except InvalidRequest:
-                    pass
+            original, ticket = self._latest_unanswered(mail, folder, task)
             current = self.db.session.get(tasks, task.id, with_for_update=True)
             if (current is None or not current.yandex_reply_lookup or current.status != 'completed'
                     or (current.park, current.board_number, current.completed_at) != (task.park, task.board_number, task.completed_at)):
@@ -286,12 +310,25 @@ class YandexRequests:
                 return 'unknown_board'
             if self.model.query.filter_by(mailbox=mailbox, park=park, ticket_number=ticket.ticket_number).first():
                 return 'duplicate'
-            received_at = original.received_at.replace(tzinfo=None)
+            received_at = original.received_at.astimezone(MOSCOW).replace(tzinfo=None)
             active_repairs = active_repairs_for_board(self.Task, ticket.board_number).with_for_update().all()
-            if active_repairs:
-                same_board = [row for row in active_repairs if (row.park, row.board_number) == (park, ticket.board_number)]
+            same_board = [row for row in active_repairs if (row.park, row.board_number) == (park, ticket.board_number)]
+            service_kind = maintenance_kind(ticket.description)
+            if service_kind:
+                planned = [row for row in same_board if self._planned_mail_kind(row) == service_kind
+                           and row.created_at is not None and received_at >= row.created_at - MAINTENANCE_LOOKBACK]
+                if len(planned) != 1:
+                    return 'active_board'
+                task = planned[0]
+                latest = self._links(task.id).with_for_update().first()
+                if latest and (latest.mailbox != mailbox or latest.recipient.casefold() != ticket.recipient.casefold()):
+                    return 'active_board'
+                result = 'linked'
+            elif active_repairs:
                 matched = []
                 for row in same_board:
+                    if self._planned_mail_kind(row):
+                        continue
                     latest = self._links(row.id).with_for_update().first()
                     if latest is None or latest.mailbox != mailbox or latest.recipient.casefold() != ticket.recipient.casefold():
                         continue

@@ -159,15 +159,19 @@ def test_immediate_reply_reopens_imap_before_retry(app_ctx, monkeypatch):
 
 
 def mail_message(original_id, ticket_number, board='164076', sheet_board=None, *,
-                 defects=('Течь рулевой рейки', 'Стук'), subject=None, sender='repair@example.org'):
+                 defects=('Течь рулевой рейки', 'Стук'), subject=None, sender='repair@example.org',
+                 service_type=None):
     workbook = Workbook()
     sheet = workbook.active
     sheet['Q1'], sheet['AH1'] = 'ЗАЯВКА НА РЕМОНТ №', ticket_number
     sheet['D6'], sheet['J6'] = 'Автобус:', f'{sheet_board or board} НЕФАЗ 5299'
-    sheet['H20'] = 'Описание неисправности'
-    for row, defect in enumerate(defects):
-        sheet[f'H{22 + row * 2}'] = defect
-    sheet[f'G{22 + len(defects) * 2}'], sheet['H45'] = 'ЗАКАЗЧИК', 'Текст из акта'
+    if service_type:
+        sheet['P13'], sheet['P15'], sheet['G21'] = 'Вид ремонта', service_type, 'ЗАКАЗЧИК'
+    else:
+        sheet['H20'] = 'Описание неисправности'
+        for row, defect in enumerate(defects):
+            sheet[f'H{22 + row * 2}'] = defect
+        sheet[f'G{22 + len(defects) * 2}'], sheet['H45'] = 'ЗАКАЗЧИК', 'Текст из акта'
     attachment = BytesIO()
     workbook.save(attachment)
 
@@ -535,6 +539,59 @@ def test_manual_closure_uses_latest_unanswered_subject(completion, monkeypatch, 
     assert (link.message_id, link.reply_text, link.reply_state) == (latest, WORK, 'pending')
     assert requests.deliver_replies(mail, ADDRESS, task_id=task_id) == 1
     assert str(mail.send_reply.call_args.args[0]['In-Reply-To']) == latest
+
+
+@pytest.mark.parametrize('linked_before_completion', [False, True])
+def test_planned_maintenance_replies_to_matching_work_type(completion, monkeypatch, linked_before_completion):
+    mod, _, task_id = completion
+    requests = mod.yandex_requests
+    monkeypatch.setenv('YANDEX_MAIL_ENABLED', '1')
+    created = datetime(2026, 11, 23, 8, tzinfo=MOSCOW)
+    task = saved_task(completion)
+    task.created_at = created.replace(tzinfo=None)
+    task.description = 'ТО2 300000'
+    task.tag = 'to'
+    task.id_to = '5228'
+    task.author_open = 'Система'
+    mod.db.session.commit()
+    other_service = '<to1@example.org>'
+    repair = '<repair@example.org>'
+    expired = '<older-to2@example.org>'
+    matching = OriginalMail(b'1', ORIGINAL_ID, created - timedelta(hours=8), '164076')
+    old = OriginalMail(b'2', expired, created - timedelta(days=2), '164076')
+    mail = fake_mail(created, {
+        ORIGINAL_ID: mail_message(ORIGINAL_ID, 'УА160223571', service_type='Обслуживание техническое  (ТО-2)'),
+        other_service: mail_message(other_service, 'УА160223572', service_type='ТО-1'),
+        repair: mail_message(repair, 'УА160223573'),
+        expired: mail_message(expired, 'УА160223574', service_type='ТО-2'),
+    })
+    folders = {PARK: 'INBOX'}
+    mail.unanswered.return_value = [[matching, old,
+        OriginalMail(b'3', other_service, created, '164076'),
+        OriginalMail(b'4', repair, created + timedelta(minutes=1), '164076'),
+    ]]
+    if linked_before_completion:
+        counts = requests.import_requests(mail, ADDRESS, folders, None, apply=True)
+        assert (counts['created'], counts['linked']) == (0, 1)
+        assert saved_task(completion).description == 'ТО2 300000'
+
+    task = saved_task(completion)
+    task.status = 'completed'
+    task.completed_work = WORK
+    task.completed_at = (created + timedelta(hours=12)).replace(tzinfo=None)
+    queued = requests.queue_reply(task)
+    if not queued:
+        requests.queue_reply_lookup(task)
+        assert task.yandex_reply_lookup
+    mod.db.session.commit()
+    monkeypatch.setenv('YANDEX_MAIL_IMPORT_FROM', '2026-11-24T00:00:00')
+    requests.resolve_reply_lookups(mail, ADDRESS, folders, task_id=task_id)
+
+    assert not saved_task(completion).yandex_reply_lookup
+    link = requests.model.query.one()
+    assert (link.task_id, link.ticket_number, link.reply_text) == (task_id, 'УА160223571', WORK)
+    assert requests.deliver_replies(mail, ADDRESS, task_id=task_id) == 1
+    assert str(mail.send_reply.call_args.args[0]['In-Reply-To']) == ORIGINAL_ID
 
 
 @pytest.mark.parametrize('delivery', ['sent', 'answered', 'verify', 'pending', 'sent_copy', 'sent_mark', 'review'])
