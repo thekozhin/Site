@@ -35,6 +35,7 @@ from yandex_oauth import YandexMailOAuth
 PILOT_FOLDERS = {'14 парк': INBOX}
 RETRY_MINUTES = (1, 5, 15)
 SENT_STEPS = ('sent_copy', 'sent_mark')
+SUPPLEMENT_SUBJECT = re.compile(r'\bдополнение\b', re.IGNORECASE)
 
 
 class YandexRequests:
@@ -48,19 +49,18 @@ class YandexRequests:
             __tablename__ = 'yandex_mail_request'
             __table_args__ = (
                 db.UniqueConstraint('mailbox', 'park', 'ticket_number', name='uq_yandex_mail_ticket'),
-                db.UniqueConstraint('message_key', name='uq_yandex_mail_message'),
                 db.Index('ix_yandex_mail_replies', 'reply_state', 'reply_attempt_at'),
                 db.Index('ix_yandex_mail_retry', 'reply_state', 'reply_next_at'),
                 {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_unicode_ci'},
             )
 
-            task_id = db.Column(db.Integer, primary_key=True, autoincrement=False)
+            task_id = db.Column(db.Integer, nullable=False, index=True)
             mailbox = db.Column(db.String(254), nullable=False)
             park = db.Column(db.String(50), nullable=False)
             board_number = db.Column(db.String(20), nullable=False)
             ticket_number = db.Column(db.String(40), nullable=False)
             folder = db.Column(db.String(255), nullable=False)
-            message_key = db.Column(db.String(64), nullable=False)
+            message_key = db.Column(db.String(64), primary_key=True)
             message_id = db.Column(db.String(512), nullable=False)
             recipient = db.Column(db.String(254), nullable=False)
             subject = db.Column(db.String(500), nullable=False)
@@ -139,25 +139,29 @@ class YandexRequests:
 
     def link_for(self, task):
         if self._eligible_task(task):
-            return self.db.session.get(self.model, task.id)
+            return self._links(task.id).first()
         return None
+
+    def _links(self, task_id):
+        link = self.model
+        return link.query.filter_by(task_id=task_id).order_by(link.received_at.desc(), link.message_key.desc())
 
     def queue_reply(self, task, *, deferred=False):
         if not self._eligible_task(task):
             return None
-        link = self.db.session.get(self.model, task.id, with_for_update=True)
-        if link is None and task.author_open != MAIL_TASK_AUTHOR:
-            return None
-        if link is None or (link.park, link.board_number) != (task.park, task.board_number):
+        links = self._links(task.id).with_for_update().all()
+        if not links and task.author_open != MAIL_TASK_AUTHOR:
+            return []
+        if not links or any((link.park, link.board_number) != (task.park, task.board_number) for link in links):
             raise MailError('Не удалось подтвердить привязку заявки к письму Яндекс Почты.')
-        if link.reply_state not in ('open', 'pending'):
-            return None
-        link.reply_text = task.completed_work
-        link.reply_state = 'deferred' if deferred else 'pending'
-        link.reply_error = None
-        link.reply_retry_count = 0
-        link.reply_next_at = None
-        return link
+        queued = [link for link in links if link.reply_state in ('open', 'pending')]
+        for link in queued:
+            link.reply_text = task.completed_work
+            link.reply_state = 'deferred' if deferred else 'pending'
+            link.reply_error = None
+            link.reply_retry_count = 0
+            link.reply_next_at = None
+        return queued
 
     def queue_reply_lookup(self, task):
         if (not self.enabled() or task.park not in self.folders() or not task.author_open
@@ -166,8 +170,9 @@ class YandexRequests:
             return
         task.yandex_reply_lookup = True
 
-    def confirm_manual_reply(self, task_id, reported_at):
-        self.model.query.filter(self.model.task_id == task_id, self.model.reply_state.in_(('deferred', 'review'))).update({
+    def confirm_manual_reply(self, task_id, ticket_number, reported_at):
+        self.model.query.filter(self.model.task_id == task_id, self.model.ticket_number == ticket_number,
+                                self.model.reply_state.in_(('deferred', 'review'))).update({
             'reply_state': 'answered', 'reply_sent_at': reported_at, 'reply_error': None, 'reply_next_at': None,
         }, synchronize_session=False)
 
@@ -235,7 +240,7 @@ class YandexRequests:
                 continue
             current.yandex_reply_lookup = False
             foreign_link = None
-            if ticket and ticket.recipient.casefold() != address and not self.db.session.get(self.model, task.id):
+            if ticket and ticket.recipient.casefold() != address and not self._links(task.id).first():
                 key = hashlib.sha256(f'{address}\n{original.message_id}'.encode()).hexdigest()
                 link = self.model
                 existing = link.query.filter(or_(link.message_key == key, and_(
@@ -274,23 +279,42 @@ class YandexRequests:
 
     def _add_task(self, mailbox, park, folder, original, key, ticket):
         try:
-            if self.model.query.filter_by(mailbox=mailbox, park=park, ticket_number=ticket.ticket_number).first():
-                return 'duplicate'
             for model in self.vehicle_models:
                 vehicle = model.query.filter_by(bort=ticket.board_number, location=park).with_for_update().first()
                 if vehicle is not None:
                     break
             else:
                 return 'unknown_board'
+            if self.model.query.filter_by(mailbox=mailbox, park=park, ticket_number=ticket.ticket_number).first():
+                return 'duplicate'
             received_at = original.received_at.replace(tzinfo=None)
             active_repairs = active_repairs_for_board(self.Task, ticket.board_number).with_for_update().all()
             if active_repairs:
+                same_board = [row for row in active_repairs if (row.park, row.board_number) == (park, ticket.board_number)]
+                supplement = SUPPLEMENT_SUBJECT.search(ticket.subject)
+                matched = []
+                for row in same_board:
+                    latest = self._links(row.id).with_for_update().first()
+                    if latest is None or latest.mailbox != mailbox or latest.recipient.casefold() != ticket.recipient.casefold():
+                        continue
+                    if not supplement:
+                        if received_at >= latest.received_at or not all(
+                            SUPPLEMENT_SUBJECT.search(link.subject) for link in self._links(row.id).all()
+                        ):
+                            continue
+                    matched.append((row, latest))
                 manual_tasks = manual_repair_candidates(
                     active_repairs, park, excluded_authors=(MAIL_TASK_AUTHOR, 'InControl', 'Система'),
                 )
                 candidates = (task for task in manual_tasks if task.board_number == ticket.board_number
-                              and self.db.session.get(self.model, task.id, with_for_update=True) is None)
-                task, extras = match_imported_repair(candidates, ticket.description)
+                              and self._links(task.id).with_for_update().first() is None)
+                if len(matched) == 1:
+                    task, latest = matched[0]
+                    if received_at >= latest.received_at:
+                        task.description = ticket.description
+                    extras = []
+                else:
+                    task, extras = match_imported_repair(candidates, ticket.description)
                 if task is None:
                     return 'active_board'
                 if extras:
@@ -358,7 +382,7 @@ class YandexRequests:
                     if sent_from is None or first_day < sent_from:
                         replied_to = mail.reply_parents_since(first_day)
                         sent_from = first_day
-                for key, item in candidates.items():
+                for key, item in sorted(candidates.items(), key=lambda pair: pair[1].received_at):
                     if item.message_id in replied_to:
                         counts['answered'] += 1
                         continue
@@ -381,7 +405,7 @@ class YandexRequests:
                 self.app.logger.info('Яндекс Почта | %s | Добавлены борта %s', park, ', '.join(added_boards))
         return counts
 
-    def _set_reply_state(self, task_id, state, *, expected_states, error=None, retry_count=0, next_at=None):
+    def _set_reply_state(self, message_key, state, *, expected_states, error=None, retry_count=0, next_at=None):
         attempted_at = utcnow()
         values = {'reply_state': state, 'reply_error': error, 'reply_retry_count': retry_count,
                   'reply_next_at': next_at}
@@ -392,16 +416,16 @@ class YandexRequests:
         link = self.model
         if state == 'sent_mark':
             values['reply_sent_at'] = func.coalesce(link.reply_sent_at, attempted_at)
-        link.query.filter(link.task_id == task_id, link.reply_state.in_(expected_states)).update(
+        link.query.filter(link.message_key == message_key, link.reply_state.in_(expected_states)).update(
             values, synchronize_session=False,
         )
         self.db.session.commit()
         self.db.session.remove()
 
-    def _claim_reply(self, task_id):
+    def _claim_reply(self, message_key):
         link = self.model
         now = utcnow()
-        claimed = link.query.filter(link.task_id == task_id, link.reply_state == 'pending',
+        claimed = link.query.filter(link.message_key == message_key, link.reply_state == 'pending',
                                     or_(link.reply_next_at.is_(None), link.reply_next_at <= now)).update({
             'reply_state': 'sending', 'reply_attempt_at': now, 'reply_error': None, 'reply_next_at': None,
         }, synchronize_session=False)
@@ -412,18 +436,18 @@ class YandexRequests:
     def _retry_reply(self, link, state, error, *, expected_states=None, reset=False):
         count = 0 if reset else link.reply_retry_count
         next_at = utcnow() + timedelta(minutes=RETRY_MINUTES[min(count, len(RETRY_MINUTES) - 1)])
-        self._set_reply_state(link.task_id, state, expected_states=expected_states or (link.reply_state,),
+        self._set_reply_state(link.message_key, state, expected_states=expected_states or (link.reply_state,),
                               error=error, retry_count=min(count + 1, len(RETRY_MINUTES)), next_at=next_at)
 
     @staticmethod
     def _reply_message_id(link):
         return f'<setrans-{link.message_key}@setrans.online>'
 
-    def _recover_sent(self, mail, task_id, state):
+    def _recover_sent(self, mail, message_key, state):
         # Держим этап за одним процессом, даже если быстрый ответ пересёкся с заданием планировщика.
         model = self.model
         now = utcnow()
-        claimed = model.query.filter(model.task_id == task_id, model.reply_state == state,
+        claimed = model.query.filter(model.message_key == message_key, model.reply_state == state,
                                      or_(model.reply_next_at.is_(None), model.reply_next_at <= now)).update({
             'reply_next_at': now + timedelta(minutes=5),
         }, synchronize_session=False)
@@ -431,7 +455,7 @@ class YandexRequests:
         if not claimed:
             self.db.session.remove()
             return
-        link = self.db.session.get(model, task_id)
+        link = self.db.session.get(model, message_key)
         self.db.session.remove()
         try:
             if state == 'sent_copy':
@@ -446,18 +470,18 @@ class YandexRequests:
             stage = 'копия в отправленных' if state == 'sent_copy' else 'отметка на исходном письме'
             self._retry_reply(link, state, error)
             self.app.logger.warning('yandex-mail: борт=%s, task=%s, SMTP принял ответ, сбой IMAP (%s): %s',
-                                    link.board_number, task_id, stage, error)
+                                    link.board_number, link.task_id, stage, error)
             return
         if state == 'sent_copy':
-            self._set_reply_state(task_id, 'sent_mark', expected_states=(state,))
-            self._recover_sent(mail, task_id, 'sent_mark')
+            self._set_reply_state(message_key, 'sent_mark', expected_states=(state,))
+            self._recover_sent(mail, message_key, 'sent_mark')
         else:
-            self._set_reply_state(task_id, 'sent', expected_states=(state,))
+            self._set_reply_state(message_key, 'sent', expected_states=(state,))
             self.app.logger.info('yandex-mail: борт=%s, task=%s, копия ответа и отметка сохранены',
-                                 link.board_number, task_id)
+                                 link.board_number, link.task_id)
 
     def _stage_review(self, link, *, expected_state, error):
-        current = self.db.session.get(self.model, link.task_id, with_for_update=True)
+        current = self.db.session.get(self.model, link.message_key, with_for_update=True)
         staged = False
         if current is not None and current.reply_state == expected_state:
             task = self.db.session.get(self.Task, link.task_id)
@@ -480,18 +504,18 @@ class YandexRequests:
         board = link.board_number
         expected_states = (link.reply_state,)
         if link.reply_state in SENT_STEPS:
-            self._recover_sent(mail, task_id, link.reply_state)
+            self._recover_sent(mail, link.message_key, link.reply_state)
             return
         verifying = link.reply_state in ('sending', 'verify')
         if verifying and mail.has_sent_copy(self._reply_message_id(link),
                                             link.reply_attempt_at.replace(tzinfo=timezone.utc) if link.reply_attempt_at
                                             else utcnow().replace(tzinfo=timezone.utc)):
-            self._set_reply_state(task_id, 'sent_mark', expected_states=expected_states)
-            self._recover_sent(mail, task_id, 'sent_mark')
+            self._set_reply_state(link.message_key, 'sent_mark', expected_states=expected_states)
+            self._recover_sent(mail, link.message_key, 'sent_mark')
             return
         original_answered = mail.original_answered(link.folder, link.message_id, link.received_at)
         if original_answered or mail.has_reply(link.message_id, link.received_at):
-            self._set_reply_state(task_id, 'answered', expected_states=expected_states)
+            self._set_reply_state(link.message_key, 'answered', expected_states=expected_states)
             logger.info('yandex-mail: борт=%s, task=%s, ответ уже есть', board, task_id)
             return
         if verifying:
@@ -510,7 +534,7 @@ class YandexRequests:
 
         reply = build_reply(link.mailbox, link.recipient, link.subject, link.message_id,
                             self._reply_message_id(link), link.reply_text)
-        if not self._claim_reply(task_id):
+        if not self._claim_reply(link.message_key):
             return
         expected_states = ('sending',)
         logger.info('yandex-mail: борт=%s, task=%s, отправляем ответ', board, task_id)
@@ -529,8 +553,8 @@ class YandexRequests:
             logger.warning('yandex-mail: борт=%s, task=%s, ответ остался в очереди: %s', board, task_id, exc)
             return
         logger.info('yandex-mail: борт=%s, task=%s, SMTP подтвердил отправку', board, task_id)
-        self._set_reply_state(task_id, 'sent_copy', expected_states=expected_states)
-        self._recover_sent(mail, task_id, 'sent_copy')
+        self._set_reply_state(link.message_key, 'sent_copy', expected_states=expected_states)
+        self._recover_sent(mail, link.message_key, 'sent_copy')
 
     def _reply_queue(self, address, *, task_id=None):
         link = self.model

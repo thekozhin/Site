@@ -158,7 +158,8 @@ def test_immediate_reply_reopens_imap_before_retry(app_ctx, monkeypatch):
     deliver.assert_called_once_with(second, ADDRESS, task_id=123)
 
 
-def mail_message(original_id, ticket_number, board='164076', sheet_board=None, *, defects=('Течь рулевой рейки', 'Стук')):
+def mail_message(original_id, ticket_number, board='164076', sheet_board=None, *,
+                 defects=('Течь рулевой рейки', 'Стук'), subject=None):
     workbook = Workbook()
     sheet = workbook.active
     sheet['Q1'], sheet['AH1'] = 'ЗАЯВКА НА РЕМОНТ №', ticket_number
@@ -173,7 +174,7 @@ def mail_message(original_id, ticket_number, board='164076', sheet_board=None, *
     message = EmailMessage()
     message['From'] = 'Приёмка <repair@example.org>'
     message['To'] = ADDRESS
-    message['Subject'] = board
+    message['Subject'] = subject or board
     message['Message-ID'] = original_id
     message.set_content('Заявка во вложении')
     message.add_attachment(attachment.getvalue(), maintype='application',
@@ -368,6 +369,38 @@ def test_import_distinguishes_repair_numbers_and_skips_replies(app_ctx, caplog):
     assert {task.tag for task in mod.Task.query} == {'waiting'}
 
 
+def test_supplement_replaces_description_and_each_letter_gets_one_reply(app_ctx):
+    mod = app_ctx
+    requests = mod.yandex_requests
+    mod.db.session.add(mod.Car(bort='162828', location=PARK))
+    mod.db.session.commit()
+    received = datetime.now(MOSCOW)
+    new_id = '<supplement@example.org>'
+    mail = fake_mail(received, {
+        ORIGINAL_ID: mail_message(ORIGINAL_ID, 'УА160223600', '162828', defects=('Старое описание',)),
+        new_id: mail_message(new_id, 'УА160223601', '162828', subject='162828 ДОПОЛНЕНИЕ',
+                             defects=('Новое описание', 'Фара ближнего света')),
+    })
+    mail.unanswered.return_value = [[OriginalMail(b'1', new_id, received, '162828'),
+                                     OriginalMail(b'2', ORIGINAL_ID, received - timedelta(minutes=15), '162828')]]
+    args = mail, ADDRESS, {PARK: 'INBOX'}, None
+    result = requests.import_requests(*args, apply=True)
+    assert (result['created'], result['linked']) == (1, 1)
+    assert requests.import_requests(*args, apply=True)['duplicate'] == 2
+    task = mod.Task.query.one()
+    assert task.description == 'Новое описание\nФара ближнего света'
+    task_id = task.id
+    task.status = 'completed'
+    task.completed_work = WORK
+    assert len(requests.queue_reply(task)) == 2
+    mod.db.session.commit()
+
+    assert requests.deliver_replies(mail, ADDRESS, task_id=task_id) == 2
+    assert {str(call.args[0]['In-Reply-To']) for call in mail.send_reply.call_args_list} == {ORIGINAL_ID, new_id}
+    assert {item.reply_state for item in requests._links(task_id)} == {'sent'}
+    assert requests.deliver_replies(mail, ADDRESS, task_id=task_id) == 0
+
+
 def test_inbox_links_matching_manual_task_and_keeps_its_author(completion, monkeypatch):
     mod, client, task_id = completion
     requests = mod.yandex_requests
@@ -387,13 +420,13 @@ def test_inbox_links_matching_manual_task_and_keeps_its_author(completion, monke
     assert requests.import_requests(*args, apply=True)['duplicate'] == 1
     assert mod.Task.query.count() == 1
     assert saved_task(completion).author_open == 'Приёмщик'
-    assert mod.db.session.get(requests.model, task_id).received_at == received.replace(tzinfo=None)
+    assert requests.model.query.filter_by(task_id=task_id).one_or_none().received_at == received.replace(tzinfo=None)
     assert 'УА160222071' in client.get(f'/complete_task/{task_id}').text
 
     check, _ = run_check(completion, monkeypatch)
     assert complete(completion, check['check_id'], completed_work=WORK).status_code == 200
     submit.assert_called_once_with(task_id, '164076')
-    assert mod.db.session.get(requests.model, task_id).reply_text == WORK
+    assert requests.model.query.filter_by(task_id=task_id).one_or_none().reply_text == WORK
 
 
 def test_inbox_appends_new_defect_and_waits_for_board_before_importing_new_ticket(completion):
@@ -418,7 +451,7 @@ def test_inbox_appends_new_defect_and_waits_for_board_before_importing_new_ticke
     args = mail, ADDRESS, {PARK: 'INBOX'}, None
     result = requests.import_requests(*args, apply=True)
     assert (result['linked'], result['created'], result['active_board']) == (1, 0, 1)
-    assert mod.db.session.get(requests.model, task_id).ticket_number == 'УА160223263'
+    assert requests.model.query.filter_by(task_id=task_id).one_or_none().ticket_number == 'УА160223263'
     assert saved_task(completion).description.splitlines() == [*defects, extra]
     assert mod.Task.query.count() == 1
     saved_task(completion).status = 'completed'
@@ -445,7 +478,7 @@ def test_inbox_matches_same_defects_when_one_position_has_a_typo(completion):
 
     result = requests.import_requests(mail, ADDRESS, {PARK: 'INBOX'}, None, apply=True)
     assert (result['linked'], result['created']) == (1, 0)
-    assert mod.db.session.get(requests.model, task_id).ticket_number == 'УА160223922'
+    assert requests.model.query.filter_by(task_id=task_id).one_or_none().ticket_number == 'УА160223922'
     assert saved_task(completion).description == description
 
 
@@ -488,7 +521,7 @@ def test_manual_closure_uses_latest_unanswered_subject(completion, monkeypatch, 
     monkeypatch.setenv('YANDEX_MAIL_IMPORT_FROM', (completed_at + timedelta(hours=2)).isoformat())
     requests.resolve_reply_lookups(mail, ADDRESS, {PARK: 'INBOX'}, task_id=task_id)
     mail.unanswered.assert_called_with('INBOX', None, board_number='164076')
-    link = mod.db.session.get(requests.model, task_id)
+    link = requests.model.query.filter_by(task_id=task_id).one_or_none()
     assert not saved_task(completion).yandex_reply_lookup
     if previous_link in ('active', 'orphan_other_repair'):
         assert link is None and requests.model.query.one().task_id != task_id
@@ -621,29 +654,29 @@ def test_scheduled_reply_check_preserves_in_flight_claim(app_ctx):
     mod.db.session.commit()
 
     def fail_while_another_worker_sends(*args):
-        assert requests._claim_reply(task_id)
+        assert requests._claim_reply(requests.model.query.filter_by(task_id=task_id).one().message_key)
         raise MailError('Не удалось проверить письмо')
 
     mail.original_answered.side_effect = fail_while_another_worker_sends
     assert requests.deliver_replies(mail, ADDRESS) == 1
-    link = mod.db.session.get(requests.model, task_id)
+    link = requests.model.query.filter_by(task_id=task_id).one_or_none()
     assert link.reply_state == 'sending' and link.reply_error is None
     assert requests.deliver_replies(mail, ADDRESS) == 0
     mail.send_reply.assert_not_called()
 
-    link = mod.db.session.get(requests.model, task_id)
+    link = requests.model.query.filter_by(task_id=task_id).one_or_none()
     link.reply_attempt_at = utcnow() - timedelta(minutes=10)
     mod.db.session.commit()
     mail.original_answered.side_effect = None
     assert requests.deliver_replies(mail, ADDRESS) == 1
     for delay in (1, 5, 15):
-        link = mod.db.session.get(requests.model, task_id)
+        link = requests.model.query.filter_by(task_id=task_id).one_or_none()
         assert link.reply_state == 'verify'
         assert abs((link.reply_next_at - utcnow()).total_seconds() - delay * 60) < 3
         link.reply_next_at = utcnow() - timedelta(seconds=1)
         mod.db.session.commit()
         assert requests.deliver_replies(mail, ADDRESS) == 1
-    assert mod.db.session.get(requests.model, task_id).reply_state == 'review'
+    assert requests.model.query.filter_by(task_id=task_id).one_or_none().reply_state == 'review'
     assert requests.deliver_replies(mail, ADDRESS) == 0
     assert mod.incontrol_outbox.model.query.filter_by(task_id=task_id, service='yandex_mail', park=PARK).count() == 1
     mail.send_reply.assert_not_called()
@@ -668,7 +701,7 @@ def test_mail_replies_skip_parks_removed_from_folder_settings(app_ctx, monkeypat
     assert requests.deliver_replies(mail, ADDRESS) == 0
     assert requests.deliver_replies(mail, ADDRESS, task_id=task_id) == 0
     mail.send_reply.assert_not_called()
-    assert mod.db.session.get(requests.model, task_id).reply_state == 'pending'
+    assert requests.model.query.filter_by(task_id=task_id).one_or_none().reply_state == 'pending'
 
 
 @pytest.mark.parametrize('author', [MAIL_TASK_AUTHOR, 'Приёмщик'])

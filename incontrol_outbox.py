@@ -91,7 +91,7 @@ class IncontrolOutbox:
         entry.reported_at = utcnow()
         entry.reported_by = current_user.full_name or current_user.username
         if entry.service == 'yandex_mail':
-            self.mail_requests.confirm_manual_reply(entry.task_id, entry.reported_at)
+            self.mail_requests.confirm_manual_reply(entry.task_id, entry.mail_ticket_number, entry.reported_at)
         self.db.session.commit()
         flash(f'Отписка по борту {entry.board_number} отмечена.', 'success')
         return redirect(url_for('incontrol_pending'))
@@ -165,7 +165,8 @@ class IncontrolOutbox:
         self._stage(task, completed_at, completed_work, is_reject, service='yandex_mail', mail_ticket_number=ticket_number)
 
     def stage_mail_review(self, task, link):
-        if self.model.query.filter_by(task_id=task.id, service='yandex_mail', reported_at=None).first() is None:
+        if self.model.query.filter_by(task_id=task.id, service='yandex_mail',
+                                      mail_ticket_number=link.ticket_number, reported_at=None).first() is None:
             self._stage(task, task.completed_at, link.reply_text, bool(task.reject), service='yandex_mail',
                         mail_ticket_number=link.ticket_number, closed_by=task.author_closed or 'Система')
 

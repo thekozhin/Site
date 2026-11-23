@@ -150,13 +150,13 @@ def test_paused_mail_uses_same_outbox_and_is_marked_independently(completion, mo
     sheet = load_workbook(BytesIO(client.get('/incontrol/pending/export').data)).active
     assert ('Яндекс Почта', 'УА160222071') in {row[10:12] for row in sheet.values}
 
-    assert mod.db.session.get(requests.model, task_id).reply_state == 'deferred'
+    assert requests.model.query.filter_by(task_id=task_id).one_or_none().reply_state == 'deferred'
     assert client.post('/settings/incontrol', data={'action': 'closure_checks', 'incontrol': '1', 'yandex_mail': '1'}).status_code == 302
     assert requests.deliver_replies(original, ADDRESS) == 0
     original.send_reply.assert_not_called()
     assert client.post(f'/incontrol/pending/{mail_entry.id}/reported').status_code == 302
     assert client.get('/incontrol/pending/count').json == {'count': int(pause_incontrol)}
-    assert mod.db.session.get(requests.model, task_id).reply_state == 'answered'
+    assert requests.model.query.filter_by(task_id=task_id).one_or_none().reply_state == 'answered'
 
 
 def test_personal_planning_outage_can_close_with_locally_entered_work(rejection_page, monkeypatch):

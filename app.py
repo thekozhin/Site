@@ -2745,9 +2745,9 @@ def complete_task(task_id):
         mail_reply_queued = None
         try:
             mail_reply_queued = yandex_requests.queue_reply(task, deferred=mail_paused)
-            if mail_reply_queued and mail_paused:
-                incontrol_outbox.stage_mail_closure(task, completed_at, completed_work, is_reject,
-                                                   mail_reply_queued.ticket_number)
+            if mail_paused:
+                for link in mail_reply_queued or ():
+                    incontrol_outbox.stage_mail_closure(task, completed_at, completed_work, is_reject, link.ticket_number)
             if not mail_paused and not mail_reply_queued:
                 yandex_requests.queue_reply_lookup(task)
             mail_lookup_queued = task.yandex_reply_lookup
@@ -2776,7 +2776,7 @@ def complete_task(task_id):
                 flash('Ответ в Яндекс Почте добавлен в список «К отписке».', 'success')
             else:
                 yandex_requests.submit_reply(task_id, mail_board_number)
-                flash('Ответ на исходное письмо Яндекс Почты поставлен в очередь.', 'success')
+                flash(f'Письма Яндекс Почты в очереди на ответ: {len(mail_reply_queued)}.', 'success')
         elif mail_lookup_queued:
             yandex_requests.submit_reply(task_id, mail_board_number)
 
