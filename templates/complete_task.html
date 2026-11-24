@@ -203,8 +203,8 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/completion-check.js', v='outcome-fields') }}"></script>
-    <script src="{{ url_for('static', filename='js/incontrol-plan.js', v='outcome-fields') }}"></script>
+    <script src="{{ url_for('static', filename='js/completion-check.js', v='close-button') }}"></script>
+    <script src="{{ url_for('static', filename='js/incontrol-plan.js', v='close-button') }}"></script>
     <script src="{{ url_for('static', filename='js/incontrol-inline.js', v='offline-11') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
@@ -260,23 +260,6 @@
             const isSeasonalServiceTask = {{ 'true' if (task.id_to or task.tag == 'to') and task.description and 'СО' in task.description else 'false' }};
             const createdAtString = "{{ format_datetime(task.created_at, '%Y-%m-%dT%H:%M') if task.created_at else '' }}";
 
-            // 1. Блокировка запрещенных фраз
-            const restrictedPhrases = ["борт на линии", "на линии", "не предоставлен", "не подан", "линия", "убыл на линию"];
-
-            function checkRestriction() {
-                if (!completedWorkInput) return;
-                if (completionCheck.plan) {completionCheck.plan.update();return;}
-                if (form.querySelector('input[name="main_outcome"]:checked')?.value==='reject') {confirmCompleteBtn.disabled=!completedWorkInput.value.trim();return;}
-                const text = completedWorkInput.value.toLowerCase();
-                const isRestricted = restrictedPhrases.some(phrase => text.includes(phrase));
-                if (confirmCompleteBtn) {
-                    confirmCompleteBtn.disabled = isRestricted;
-                    confirmCompleteBtn.classList.toggle('disabled', isRestricted);
-                }
-            }
-
-            if (completedWorkInput) completedWorkInput.addEventListener('input', checkRestriction);
-
             function formatTimeInput() {
                 if (!workInTimeInput) return '';
                 const digits = workInTimeInput.value.replace(/\D/g, '').slice(0, 4);
@@ -319,6 +302,8 @@
                 if (completionCheck.busy || completionCheck.submitting) return;
                 const decisionMode = completionCheck.plan?.prepare() ?? form.querySelector('input[name="main_outcome"]:checked')?.value;
                 if (decisionMode === false || !decisionMode) return;
+                if (!completionCheck.plan && decisionMode === 'complete'
+                        && !completionCheck.validateCompletedWork(completedWorkInput.value)) return;
                 hiddenActionInput.value = decisionMode === 'reject' ? 'reject' : '';
 
                 if (hiddenActionInput.value !== 'reject') {

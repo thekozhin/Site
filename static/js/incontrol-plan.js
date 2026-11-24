@@ -126,9 +126,7 @@ window.IncontrolPlan = class IncontrolPlan {
         if (!this.mainMode() || this.locked || !Array.isArray(this.items)) {this.confirm.disabled=true;return;}
         if (this.mainMode()==='reject') {this.confirm.disabled=!this.work.value.trim();return;}
         if (!this.items.length) {
-            const text=this.work.value.trim().toLowerCase();
-            const restricted=['борт на линии','на линии','не предоставлен','не подан','линия','убыл на линию'].some(phrase=>text.includes(phrase));
-            this.confirm.disabled=!text || restricted;return;
+            this.confirm.disabled=!this.work.value.trim();return;
         }
         this.confirm.disabled=!this.cards?.every(card=>card.action && card.area.value.trim());
     }
@@ -148,7 +146,10 @@ window.IncontrolPlan = class IncontrolPlan {
             if (!this.work.value.trim()) {this.c.showFlash('Укажите общую причину отклонения.');return false;}
             this.field.value='';return 'reject';
         }
-        if (!this.items.length) {this.field.value='';return 'complete';}
+        if (!this.items.length) {
+            if (!this.c.validateCompletedWork(this.work.value)) return false;
+            this.field.value='';return 'complete';
+        }
         if (!this.cards.every(card=>card.action && card.area.value.trim())) {this.c.showFlash('Заполните работы и выберите результат каждой задачи.');return false;}
         const decisions=this.cards.map(card=>({id:card.item.id,action:card.action,work:card.area.value.trim()})).sort((a,b)=>a.id-b.id);
         this.field.value=JSON.stringify(decisions);
