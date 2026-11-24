@@ -114,6 +114,7 @@
                                 <span class="spinner-border spinner-border-sm me-1" id="completionCheckSpinner" hidden aria-hidden="true"></span>
                                 Завершить
                             </button>
+                            <span class="text-danger small" id="workRejectionHint" role="status" hidden>Для этой причины выберите «Отклонено».</span>
                             <span class="text-muted small" id="completionCheckMessage" role="status" aria-live="polite" hidden></span>
                         </div>
 
@@ -203,8 +204,8 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/completion-check.js', v='no-text-rule') }}"></script>
-    <script src="{{ url_for('static', filename='js/incontrol-plan.js', v='no-text-rule') }}"></script>
+    <script src="{{ url_for('static', filename='js/completion-check.js', v='rejection-rules') }}"></script>
+    <script src="{{ url_for('static', filename='js/incontrol-plan.js', v='rejection-rules') }}"></script>
     <script src="{{ url_for('static', filename='js/incontrol-inline.js', v='offline-11') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
@@ -232,9 +233,18 @@
             if (!completionCheck.plan) {
                 const details=document.getElementById('closingDetails');
                 const confirm=document.getElementById('confirmCompleteBtn');
+                const work=form.elements.completed_work;
+                const refreshWork=()=>{
+                    if (completionCheck.busy || completionCheck.submitting) return;
+                    const mode=form.querySelector('input[name="main_outcome"]:checked')?.value;
+                    const blocked=mode==='complete' && completionCheck.shouldRejectCompletedWork(work.value);
+                    confirm.disabled=!mode || blocked;
+                    completionCheck.showWorkRejectionHint(blocked);
+                };
+                work.addEventListener('input',refreshWork);
                 const refreshChoice=()=>{
                     const mode=form.querySelector('input[name="main_outcome"]:checked')?.value;
-                    details.hidden=!mode;confirm.disabled=!mode;
+                    details.hidden=!mode;refreshWork();
                     completionCheck.showOutcomeFields(mode);
                     document.getElementById('closureDescription').hidden=mode==='reject';
                     form.querySelector('label[for="completed_work"]').textContent=mode==='reject'?'Причина отклонения:':'Выполненные работы:';
@@ -302,6 +312,11 @@
                 if (completionCheck.busy || completionCheck.submitting) return;
                 const decisionMode = completionCheck.plan?.prepare() ?? form.querySelector('input[name="main_outcome"]:checked')?.value;
                 if (decisionMode === false || !decisionMode) return;
+                if (!completionCheck.plan && decisionMode === 'complete'
+                        && completionCheck.shouldRejectCompletedWork(completedWorkInput.value)) {
+                    completionCheck.showWorkRejectionHint(true);
+                    return;
+                }
                 hiddenActionInput.value = decisionMode === 'reject' ? 'reject' : '';
 
                 if (hiddenActionInput.value !== 'reject') {

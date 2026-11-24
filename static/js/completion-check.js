@@ -40,6 +40,16 @@ window.CompletionCheckController = class CompletionCheckController {
         submit.classList.toggle('btn-danger', mode === 'reject');
     }
 
+    shouldRejectCompletedWork(value) {
+        const text = value.toLowerCase();
+        const reasons = ['борт на линии', 'на линии', 'не предоставлен', 'не подан', 'линия', 'убыл на линию'];
+        return reasons.some(reason => text.includes(reason));
+    }
+
+    showWorkRejectionHint(blocked) {
+        document.getElementById('workRejectionHint').hidden = !blocked;
+    }
+
     clearFlash() {
         if (!this.notification) return;
         bootstrap.Toast.getInstance(this.notification)?.dispose();

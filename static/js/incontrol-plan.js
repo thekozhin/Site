@@ -123,10 +123,13 @@ window.IncontrolPlan = class IncontrolPlan {
         this.update();
     }
     update() {
-        if (!this.mainMode() || this.locked || !Array.isArray(this.items)) {this.confirm.disabled=true;return;}
-        if (this.mainMode()==='reject') {this.confirm.disabled=!this.work.value.trim();return;}
-        if (!this.items.length) {
-            this.confirm.disabled=!this.work.value.trim();return;
+        const mode = this.mainMode();
+        const blocked = mode === 'complete' && this.items?.length === 0
+            && this.c.shouldRejectCompletedWork(this.work.value);
+        this.c.showWorkRejectionHint(blocked);
+        if (!mode || this.locked || !Array.isArray(this.items)) {this.confirm.disabled=true;return;}
+        if (!this.items.length || mode==='reject') {
+            this.confirm.disabled=!this.work.value.trim() || blocked;return;
         }
         this.confirm.disabled=!this.cards?.every(card=>card.action && card.area.value.trim());
     }
@@ -147,6 +150,7 @@ window.IncontrolPlan = class IncontrolPlan {
             this.field.value='';return 'reject';
         }
         if (!this.items.length) {
+            if (this.c.shouldRejectCompletedWork(this.work.value)) return false;
             this.field.value='';return 'complete';
         }
         if (!this.cards.every(card=>card.action && card.area.value.trim())) {this.c.showFlash('Заполните работы и выберите результат каждой задачи.');return false;}
