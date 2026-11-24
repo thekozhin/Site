@@ -26,7 +26,7 @@
         {% for entries in closures %}
         {% set entry = entries[0] %}
         <tr>
-            <td><strong>{{ entry.board_number }}</strong><div class="small text-muted">{{ entries|map(attribute='service_name')|unique|join(', ') }}</div></td>
+            <td><strong>{{ entry.board_number }}</strong></td>
             <td>
                 <time datetime="{{ entry.completed_at.isoformat() }}+03:00">{{ format_datetime(entry.completed_at, '%d.%m.%Y %H:%M') }}</time>
                 <div class="small text-muted">{{ entry.closed_by }}</div>
