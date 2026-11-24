@@ -203,8 +203,8 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/completion-check.js', v='close-button') }}"></script>
-    <script src="{{ url_for('static', filename='js/incontrol-plan.js', v='close-button') }}"></script>
+    <script src="{{ url_for('static', filename='js/completion-check.js', v='no-text-rule') }}"></script>
+    <script src="{{ url_for('static', filename='js/incontrol-plan.js', v='no-text-rule') }}"></script>
     <script src="{{ url_for('static', filename='js/incontrol-inline.js', v='offline-11') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
@@ -302,8 +302,6 @@
                 if (completionCheck.busy || completionCheck.submitting) return;
                 const decisionMode = completionCheck.plan?.prepare() ?? form.querySelector('input[name="main_outcome"]:checked')?.value;
                 if (decisionMode === false || !decisionMode) return;
-                if (!completionCheck.plan && decisionMode === 'complete'
-                        && !completionCheck.validateCompletedWork(completedWorkInput.value)) return;
                 hiddenActionInput.value = decisionMode === 'reject' ? 'reject' : '';
 
                 if (hiddenActionInput.value !== 'reject') {

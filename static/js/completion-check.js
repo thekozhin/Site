@@ -40,17 +40,6 @@ window.CompletionCheckController = class CompletionCheckController {
         submit.classList.toggle('btn-danger', mode === 'reject');
     }
 
-    validateCompletedWork(value) {
-        const status = value.trim().toLowerCase().replace(/[.!…]+$/u, '').trim().replace(/\s+/g, ' ');
-        const rejectionReasons = ['борт на линии', 'на линии', 'не предоставлен', 'не подан', 'линия',
-            'убыл на линию', 'борт убыл на линию', 'борт не предоставлен', 'борт не подан'];
-        if (rejectionReasons.includes(status)) {
-            this.showFlash('Для этой причины выберите «Отклонено».');
-            return false;
-        }
-        return true;
-    }
-
     clearFlash() {
         if (!this.notification) return;
         bootstrap.Toast.getInstance(this.notification)?.dispose();

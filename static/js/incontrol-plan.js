@@ -147,7 +147,6 @@ window.IncontrolPlan = class IncontrolPlan {
             this.field.value='';return 'reject';
         }
         if (!this.items.length) {
-            if (!this.c.validateCompletedWork(this.work.value)) return false;
             this.field.value='';return 'complete';
         }
         if (!this.cards.every(card=>card.action && card.area.value.trim())) {this.c.showFlash('Заполните работы и выберите результат каждой задачи.');return false;}

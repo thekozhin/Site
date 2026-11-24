@@ -70,9 +70,20 @@ class IncontrolOutbox:
     def pending(self):
         return self.model.query.filter_by(park=self.selected_park(), reported_at=None)
 
+    def pending_closures(self):
+        entries = self.pending().order_by(self.model.completed_at.desc(), self.model.id.desc()).all()
+        closures = {}
+        for entry in entries:
+            key = (entry.board_number, entry.task_id, entry.completed_at, entry.description,
+                   entry.completed_work, entry.is_reject, entry.closed_by)
+            closures.setdefault(key, []).append(entry)
+        return list(closures.values())
+
     def page(self):
-        records = self.pending().order_by(self.model.completed_at.desc(), self.model.id.desc()).all()
-        return render_template('incontrol_pending.html', records=records, park=self.selected_park())
+        closures = self.pending_closures()
+        services = {entry.service for entries in closures for entry in entries}
+        return render_template('incontrol_pending.html', closures=closures, services=services,
+                               park=self.selected_park())
 
     def count(self):
         try:
@@ -107,10 +118,16 @@ class IncontrolOutbox:
             sheet.column_dimensions[column].width = width
         for cell in sheet[1]:
             cell.font = Font(bold=True)
-        for entry in self.pending().order_by(self.model.completed_at.desc(), self.model.id.desc()).all():
-            sheet.append([entry.board_number, entry.park, entry.task_id, entry.remote_id, entry.completed_at.replace(microsecond=0),
+        for entries in self.pending_closures():
+            entry = entries[0]
+            remote_ids = list(dict.fromkeys(record.remote_id for record in entries if record.remote_id))
+            remote = remote_ids[0] if len(remote_ids) == 1 else '\n'.join(map(str, remote_ids)) or None
+            child_details = '\n'.join(dict.fromkeys(record.child_details for record in entries if record.child_details))
+            services = '\n'.join(dict.fromkeys(record.service_name for record in entries))
+            mail_tickets = '\n'.join(dict.fromkeys(record.mail_ticket_number for record in entries if record.mail_ticket_number))
+            sheet.append([entry.board_number, entry.park, entry.task_id, remote, entry.completed_at.replace(microsecond=0),
                           entry.description, entry.completed_work, 'Отклонено' if entry.is_reject else 'Выполнено',
-                          entry.closed_by, entry.child_details, entry.service_name, entry.mail_ticket_number])
+                          entry.closed_by, child_details or None, services, mail_tickets or None])
             for cell in sheet[sheet.max_row]:
                 cell.alignment = Alignment(wrap_text=True, vertical='top')
                 if isinstance(cell.value, str):

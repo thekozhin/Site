@@ -6,44 +6,49 @@
         <h1 class="h4 mb-0">К отписке</h1>
         {% if park %}<p class="small text-muted mb-0 mt-1">{{ park }}</p>{% endif %}
     </div>
-    {% if records %}
+    {% if closures %}
     <a class="btn btn-outline-success" href="{{ url_for('incontrol_pending_export') }}">
         <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Скачать Excel
     </a>
     {% endif %}
 </div>
-{% if records %}
-{% if records|selectattr('service', 'equalto', 'incontrol')|list %}
+{% if closures %}
+{% if 'incontrol' in services %}
 <p class="text-muted small">Перед отпиской проверьте состояние заявки в InControl. Часть действий могла сохраниться до сбоя.</p>
 {% endif %}
-{% if records|selectattr('service', 'equalto', 'yandex_mail')|list %}
+{% if 'yandex_mail' in services %}
 <p class="text-muted small">Проверьте исходную переписку в Яндекс Почте. Если ответа ещё нет, отправьте его. Затем отметьте отписку в списке.</p>
 {% endif %}
 <div class="table-responsive">
     <table class="table table-hover align-middle">
         <thead><tr><th scope="col">Борт</th><th scope="col">Окончание (МСК)</th><th scope="col">Описание и отписка</th><th scope="col">Отметка</th></tr></thead>
         <tbody>
-        {% for entry in records %}
+        {% for entries in closures %}
+        {% set entry = entries[0] %}
         <tr>
-            <td><strong>{{ entry.board_number }}</strong><div class="small text-muted">{{ entry.service_name }}</div></td>
+            <td><strong>{{ entry.board_number }}</strong><div class="small text-muted">{{ entries|map(attribute='service_name')|unique|join(', ') }}</div></td>
             <td>
                 <time datetime="{{ entry.completed_at.isoformat() }}+03:00">{{ format_datetime(entry.completed_at, '%d.%m.%Y %H:%M') }}</time>
                 <div class="small text-muted">{{ entry.closed_by }}</div>
             </td>
             <td style="min-width: 15rem; min-width: min(15rem, 65vw)">
                 <div style="white-space: pre-wrap; overflow-wrap: anywhere">{{ entry.description }}</div>
-                {% if entry.remote_id %}<div class="small text-muted">InControl №{{ entry.remote_id }}</div>{% endif %}
-                {% if entry.mail_ticket_number %}<div class="small text-muted">Заявка №{{ entry.mail_ticket_number }}</div>{% endif %}
+                {% for record in entries %}
+                {% if record.remote_id %}<div class="small text-muted">InControl №{{ record.remote_id }}</div>{% endif %}
+                {% if record.mail_ticket_number %}<div class="small text-muted">Яндекс Почта №{{ record.mail_ticket_number }}</div>{% endif %}
+                {% endfor %}
                 <div class="mt-1" style="white-space: pre-wrap; overflow-wrap: anywhere"><strong>{{ 'Отклонено' if entry.is_reject else 'Выполнено' }}</strong> {{ entry.completed_work }}</div>
-                {% if entry.child_details %}
-                <details class="mt-1"><summary>Связанные задачи</summary><div style="white-space: pre-wrap; overflow-wrap: anywhere">{{ entry.child_details }}</div></details>
-                {% endif %}
+                {% for details in entries|map(attribute='child_details')|select|unique %}
+                <details class="mt-1"><summary>Связанные задачи</summary><div style="white-space: pre-wrap; overflow-wrap: anywhere">{{ details }}</div></details>
+                {% endfor %}
             </td>
             <td>
-                <form method="post" action="{{ url_for('incontrol_pending_reported', entry_id=entry.id) }}">
+                {% for record in entries %}
+                <form class="mb-1" method="post" action="{{ url_for('incontrol_pending_reported', entry_id=record.id) }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-sm btn-outline-success">Отметить как отписанную</button>
+                    <button type="submit" class="btn btn-sm btn-outline-success">{{ 'Отметить как отписанную' if entries|length == 1 else 'Отметить · ' ~ record.service_name ~ (' №' ~ record.mail_ticket_number if record.mail_ticket_number else '') }}</button>
                 </form>
+                {% endfor %}
             </td>
         </tr>
         {% endfor %}

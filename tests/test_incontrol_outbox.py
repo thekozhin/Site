@@ -149,9 +149,19 @@ def test_paused_mail_uses_same_outbox_and_is_marked_independently(completion, mo
     assert (mail_entry.task_id, mail_entry.mail_ticket_number, mail_entry.completed_work) == (task_id, 'УА160222071', WORK)
     assert queue.query.filter_by(service='incontrol').count() == int(pause_incontrol)
     assert client.get('/incontrol/pending/count').json == {'count': 1 + int(pause_incontrol)}
-    assert 'УА160222071' in client.get('/incontrol/pending').text
+    page = client.get('/incontrol/pending').text
+    assert 'УА160222071' in page
+    assert page.count('<strong>164076</strong>') == 1
+    assert f'/incontrol/pending/{mail_entry.id}/reported' in page
     sheet = load_workbook(BytesIO(client.get('/incontrol/pending/export').data)).active
-    assert ('Яндекс Почта', 'УА160222071') in {row[10:12] for row in sheet.values}
+    assert sheet.max_row == 2
+    assert sheet['A2'].value == '164076'
+    assert sheet['L2'].value == 'УА160222071'
+    services = {'Яндекс Почта', 'InControl'} if pause_incontrol else {'Яндекс Почта'}
+    assert set(sheet['K2'].value.splitlines()) == services
+    if pause_incontrol:
+        incontrol_entry = queue.query.filter_by(service='incontrol').one()
+        assert f'/incontrol/pending/{incontrol_entry.id}/reported' in page
 
     assert requests.model.query.filter_by(task_id=task_id).one_or_none().reply_state == 'deferred'
     assert client.post('/settings/incontrol', data={'action': 'closure_checks', 'incontrol': '1', 'yandex_mail': '1'}).status_code == 302
