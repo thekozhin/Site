@@ -18,8 +18,9 @@
                         <br />
                     {% endif %}
                     {% set mail_paused = mail_request and 'yandex_mail' in paused_closure_services() %}
+                    {% set main_mode = incontrol_mode_value|default(request.form.get('main_outcome', 'reject' if request.form.get('action') == 'reject' else ('complete' if request.method == 'POST' else ''))) %}
                     {% if incontrol_paused or mail_paused %}
-                        <p class="small text-muted">После закрытия в списке «К отписке» будет заявка для {{ 'InControl и Яндекс Почты' if incontrol_paused and mail_paused else ('InControl' if incontrol_paused else 'Яндекс Почты') }}.</p>
+                        <p id="deferredClosureNotice" class="small text-muted" {{ 'hidden' if main_mode == 'reject' else '' }}>После закрытия в списке «К отписке» будет заявка для {{ 'InControl и Яндекс Почты' if incontrol_paused and mail_paused else ('InControl' if incontrol_paused else 'Яндекс Почты') }}.</p>
                     {% endif %}
                     <form method="POST" id="completeForm">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -31,7 +32,6 @@
                         <input type="hidden" name="evacuation_photos_confirmed" id="evacuation_confirmed" value="{{ evacuation_confirmed_value|default('') }}">
                         <input type="hidden" name="seasonal_service" id="seasonal_service" value="{{ seasonal_service_value|default(request.form.get('seasonal_service', '0')) }}">
 
-                        {% set main_mode = incontrol_mode_value|default(request.form.get('main_outcome', 'reject' if request.form.get('action') == 'reject' else ('complete' if request.method == 'POST' else ''))) %}
                         <fieldset id="closingOutcomeSelector" class="mb-3 d-flex flex-wrap align-items-center gap-2">
 {#                            <legend class="fs-6 fw-semibold">Результат основной заявки</legend>#}
                             <div class="btn-group btn-group-sm" role="group">
@@ -44,7 +44,11 @@
                         </fieldset>
 
                         <div id="closingDetails" {{ 'hidden' if not main_mode else '' }}>
-                        <div id="closureDescription">
+                        <div id="rejectionRequestDescription" {{ 'hidden' if main_mode != 'reject' else '' }}>
+                            <p><strong>Причина обращения:</strong></p>
+                            <p class="text-muted">{{ task.description.replace('\n', ', ') }}</p>
+                        </div>
+                        <div id="closureDescription" {{ 'hidden' if main_mode == 'reject' else '' }}>
                             <p><strong>Описание заявки:</strong></p>
                             <p class="text-muted">{{ task.description.replace('\n', ', ') }}</p>
                         </div>
@@ -206,6 +210,17 @@
         document.addEventListener('DOMContentLoaded', function () {
             const form = document.getElementById('completeForm');
             if (!form) return;
+            const rejectionRequestDescription = document.getElementById('rejectionRequestDescription');
+            const deferredClosureNotice = document.getElementById('deferredClosureNotice');
+            function refreshRejectionDescription() {
+                const rejected = form.querySelector('input[name="main_outcome"]:checked')?.value === 'reject';
+                rejectionRequestDescription.hidden = !rejected;
+                if (deferredClosureNotice) deferredClosureNotice.hidden = rejected;
+            }
+            form.querySelectorAll('input[name="main_outcome"]').forEach(input => {
+                input.addEventListener('change', refreshRejectionDescription);
+            });
+            refreshRejectionDescription();
             const completionCheck = new ({{ 'InlineIncontrolController' if not incontrol_paused and incontrol_rejection_enabled and uses_inline_incontrol(task) else 'CompletionCheckController' }})(form, {
                 planUrl: {{ url_for('start_incontrol_plan', task_id=task.id)|tojson }},
                 required: {{ requires_completion_check(task)|tojson }},
