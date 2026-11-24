@@ -137,7 +137,10 @@ def test_paused_mail_uses_same_outbox_and_is_marked_independently(completion, mo
         assert saved_task(task_case).status == 'in_repair'
         job, _ = run_check(task_case, monkeypatch)
         check_id = job['check_id']
-    assert complete(task_case, check_id, completed_work=WORK).status_code == 200
+    response = complete(task_case, check_id, completed_work=WORK)
+    assert response.status_code == 200
+    assert 'Письмо сохранено в «К отписке» для ручного ответа' in response.text
+    assert 'в очереди на ответ' not in response.text
     submit_reply.assert_not_called()
     assert saved_task(task_case).status == 'completed'
 
@@ -157,6 +160,25 @@ def test_paused_mail_uses_same_outbox_and_is_marked_independently(completion, mo
     assert client.post(f'/incontrol/pending/{mail_entry.id}/reported').status_code == 302
     assert client.get('/incontrol/pending/count').json == {'count': int(pause_incontrol)}
     assert requests.model.query.filter_by(task_id=task_id).one_or_none().reply_state == 'answered'
+
+
+def test_paused_mail_clears_previous_lookup_for_unlinked_task(completion, monkeypatch):
+    mod, client, task_id = completion
+    requests = mod.yandex_requests
+    monkeypatch.setenv('YANDEX_MAIL_ENABLED', '1')
+    submit_reply = Mock()
+    monkeypatch.setattr(requests, 'submit_reply', submit_reply)
+    task = saved_task(completion)
+    task.author_open = 'Приёмщик'
+    task.yandex_reply_lookup = True
+    mod.db.session.commit()
+    assert client.post('/settings/incontrol', data={'action': 'closure_checks'}).status_code == 302
+
+    assert complete(completion, completed_work=WORK).status_code == 200
+    assert saved_task(completion).status == 'completed'
+    assert not saved_task(completion).yandex_reply_lookup
+    assert requests.model.query.filter_by(task_id=task_id).count() == 0
+    submit_reply.assert_not_called()
 
 
 def test_personal_planning_outage_can_close_with_locally_entered_work(rejection_page, monkeypatch):

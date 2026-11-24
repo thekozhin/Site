@@ -2746,9 +2746,10 @@ def complete_task(task_id):
         try:
             mail_reply_queued = yandex_requests.queue_reply(task, deferred=mail_paused)
             if mail_paused:
+                task.yandex_reply_lookup = False
                 for link in mail_reply_queued or ():
                     incontrol_outbox.stage_mail_closure(task, completed_at, completed_work, is_reject, link.ticket_number)
-            if not mail_paused and not mail_reply_queued:
+            elif not mail_reply_queued:
                 yandex_requests.queue_reply_lookup(task)
             mail_lookup_queued = task.yandex_reply_lookup
             if is_elbus and vehicle:
@@ -2773,7 +2774,7 @@ def complete_task(task_id):
             flash('Заявка закрыта в Сетранс и добавлена в список на отписку в InControl.', 'success')
         if mail_reply_queued:
             if mail_paused:
-                flash('Ответ в Яндекс Почте добавлен в список «К отписке».', 'success')
+                flash('Автоотправка в Яндекс Почту приостановлена. Письмо сохранено в «К отписке» для ручного ответа.', 'success')
             else:
                 yandex_requests.submit_reply(task_id, mail_board_number)
                 flash(f'Письма Яндекс Почты в очереди на ответ: {len(mail_reply_queued)}.', 'success')
