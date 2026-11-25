@@ -31,6 +31,7 @@ def account_info(monkeypatch):
 def test_authorize_checks_mailbox_and_persists_credentials(tmp_path, monkeypatch, account_info):
     path = tmp_path / 'oauth.json'
     monkeypatch.setenv('YANDEX_MAIL_OAUTH_FILE', str(path))
+    monkeypatch.setenv('YANDEX_MAIL_OAUTH_DEVICE_NAME', 'Сетранс · Тестовый Mac')
     device = {'device_code': 'test-device', 'user_code': 'test-display', 'interval': 1, 'expires_in': 60}
     server = Mock(side_effect=[device, oauth.OAuthConnectionError('ReadTimeout'),
                                oauth.OAuthError('authorization_pending'), TOKEN])
@@ -51,8 +52,16 @@ def test_authorize_checks_mailbox_and_persists_credentials(tmp_path, monkeypatch
     account_info.assert_called_once_with(oauth.ACCOUNT_INFO_URL, headers={'Authorization': 'OAuth access-test'},
                                          timeout=(5, 10), allow_redirects=False)
     mailbox.assert_called_once_with(ADDRESS, None, oauth_token='access-test', logger=logger)
+    device_id = json.loads(path.with_suffix('.json.device.json').read_text())
+    assert store._device_id() == device_id
+    assert len(device_id) == 32
+    another_path = tmp_path / 'another' / 'oauth.json'
+    with monkeypatch.context() as another_device:
+        another_device.setenv('YANDEX_MAIL_OAUTH_FILE', str(another_path))
+        assert oauth.YandexMailOAuth(ADDRESS)._device_id() != device_id
     assert server.call_args_list == [
-        call('device/code', {'client_id': 'client-test', 'scope': 'mail:imap_full mail:smtp'}),
+        call('device/code', {'client_id': 'client-test', 'scope': 'mail:imap_full mail:smtp',
+                             'device_id': device_id, 'device_name': 'Сетранс · Тестовый Mac'}),
         call('token', {'grant_type': 'device_code', 'code': 'test-device'}, auth=('client-test', 'secret-test')),
         call('token', {'grant_type': 'device_code', 'code': 'test-device'}, auth=('client-test', 'secret-test')),
         call('token', {'grant_type': 'device_code', 'code': 'test-device'}, auth=('client-test', 'secret-test')),

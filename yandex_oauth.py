@@ -2,10 +2,12 @@
 
 import json
 import os
+import socket
 from contextlib import contextmanager, suppress
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from time import monotonic, sleep, time
+from uuid import UUID, uuid4
 
 import requests
 
@@ -94,18 +96,35 @@ class YandexMailOAuth:
                 fcntl.flock(lock, fcntl.LOCK_EX)
                 yield
 
-    def _write(self, data):
-        temp = NamedTemporaryFile(mode='w', encoding='utf-8', dir=self.path.parent, delete=False)
+    def _write(self, data, *, path=None):
+        path = path or self.path
+        temp = NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False)
         temp_path = Path(temp.name)
         try:
             with temp:
                 json.dump(data, temp)
                 temp.flush()
                 os.fsync(temp.fileno())
-            os.replace(temp_path, self.path)
+            os.replace(temp_path, path)
         finally:
             with suppress(FileNotFoundError):
                 temp_path.unlink()
+
+    def _device_id(self):
+        path = self.path.with_suffix(self.path.suffix + '.device.json')
+        try:
+            with self._locked():
+                try:
+                    value = json.loads(path.read_text(encoding='utf-8'))
+                    if isinstance(value, str):
+                        return UUID(value).hex
+                except (FileNotFoundError, ValueError):
+                    pass
+                device_id = uuid4().hex
+                self._write(device_id, path=path)
+                return device_id
+        except OSError as exc:
+            raise MailError(f'Не удалось сохранить идентификатор устройства Яндекс OAuth ({type(exc).__name__}).') from None
 
     def _verify_account(self, access_token):
         try:
@@ -153,7 +172,13 @@ class YandexMailOAuth:
     def authorize(self, client_id, client_secret, show_code, logger):
         if not (_valid_secret(client_id) and _valid_secret(client_secret)):
             raise MailError('Укажите Client ID и Client Secret из карточки приложения.')
-        device = _post('device/code', {'client_id': client_id, 'scope': ' '.join(sorted(MAIL_SCOPES))})
+        device_name = (os.getenv('YANDEX_MAIL_OAUTH_DEVICE_NAME') or '').strip() or f'Сетранс · {socket.gethostname()}'
+        device = _post('device/code', {
+            'client_id': client_id,
+            'scope': ' '.join(sorted(MAIL_SCOPES)),
+            'device_id': self._device_id(),
+            'device_name': device_name[:100],
+        })
         code = device.get('device_code')
         user_code = device.get('user_code')
         interval = device.get('interval', 5)
