@@ -12,6 +12,7 @@ import requests
 from yandex_mail import MailError, YandexMailbox
 
 
+_WINDOWS = os.name == 'nt'
 OAUTH_BASE = 'https://oauth.yandex.ru'
 DEVICE_PAGE = f'{OAUTH_BASE}/device'
 ACCOUNT_INFO_URL = 'https://login.yandex.ru/info'
@@ -76,25 +77,35 @@ class YandexMailOAuth:
 
     @contextmanager
     def _locked(self):
-        import fcntl  # macOS и Linux, на которых работает почтовая интеграция.
-
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         lock_path = self.path.with_suffix(self.path.suffix + '.lock')
-        with os.fdopen(os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o600), 'w') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            yield
+        with os.fdopen(os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600), 'r+b') as lock:
+            if _WINDOWS:
+                import msvcrt
+
+                msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+                try:
+                    yield
+                finally:
+                    msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                yield
 
     def _write(self, data):
-        with NamedTemporaryFile(mode='w', encoding='utf-8', dir=self.path.parent, delete=False) as temp:
-            temp_path = Path(temp.name)
-            try:
+        temp = NamedTemporaryFile(mode='w', encoding='utf-8', dir=self.path.parent, delete=False)
+        temp_path = Path(temp.name)
+        try:
+            with temp:
                 json.dump(data, temp)
                 temp.flush()
                 os.fsync(temp.fileno())
-                os.replace(temp_path, self.path)
-            finally:
-                with suppress(FileNotFoundError):
-                    temp_path.unlink()
+            os.replace(temp_path, self.path)
+        finally:
+            with suppress(FileNotFoundError):
+                temp_path.unlink()
 
     def _verify_account(self, access_token):
         try:
@@ -116,7 +127,7 @@ class YandexMailOAuth:
         try:
             with self._locked():
                 with self.path.open(encoding='utf-8') as file:
-                    if os.fstat(file.fileno()).st_mode & 0o077:
+                    if not _WINDOWS and os.fstat(file.fileno()).st_mode & 0o077:
                         raise MailError('Установите права 600 на файл OAuth для Яндекс Почты.')
                     values = json.load(file)
                 required = ('client_id', 'client_secret', 'access_token', 'refresh_token')

@@ -36,6 +36,8 @@ INCONTROL_CLOSURE_PARKS='14 парк,1 парк'
 2. Откройте ссылку из терминала, выберите аккаунт `YANDEX_MAIL_ADDRESS`, введите показанный код и подтвердите доступ. Команда сверит владельца токена через Яндекс ID, проверит вход по IMAP и сохранит токены в `~/.config/setrans/yandex-mail-oauth.json` с правами `600`. Другой путь задаётся через `YANDEX_MAIL_OAUTH_FILE`. Храните файл вне публичного каталога сайта.
 3. Проверьте доступ и выбор источника командой `RUN_SCHEDULER=0 YANDEX_MAIL_AUTH=oauth python -m flask --app app yandex-mail-sync`. Для включения синхронизации через OAuth задайте `YANDEX_MAIL_AUTH=oauth` в `.env` и перезапустите приложение. Токен обновляется автоматически. [Обновление токена Яндекс OAuth](https://yandex.ru/dev/id/doc/ru/tokens/refresh-client)
 
+На Windows запускайте авторизацию из окружения проекта этой же командой Flask. Токены сохраняются в `%USERPROFILE%\.config\setrans\yandex-mail-oauth.json`, если путь не переопределён через `YANDEX_MAIL_OAUTH_FILE`. Для проверки на любой ОС используйте `python -m flask --app app yandex-mail-sync`. Команда запускает просмотр писем.
+
 ## Журнал
 
 В `logs/app.log` почтовая синхронизация записывает парк, борт и событие. Примеры

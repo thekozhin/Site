@@ -1,6 +1,7 @@
 import imaplib
 import json
 import smtplib
+import sys
 from email.message import EmailMessage
 from time import time
 from unittest.mock import Mock, call
@@ -57,7 +58,8 @@ def test_authorize_checks_mailbox_and_persists_credentials(tmp_path, monkeypatch
         call('token', {'grant_type': 'device_code', 'code': 'test-device'}, auth=('client-test', 'secret-test')),
     ]
     assert sleep.call_args_list == [call(1), call(2), call(2)]
-    assert path.stat().st_mode & 0o777 == 0o600
+    if not oauth._WINDOWS:
+        assert path.stat().st_mode & 0o777 == 0o600
     assert store.access_token() == 'access-test'
     assert server.call_count == 4
     with pytest.raises(MailError, match='не подходит для этого ящика'):
@@ -84,7 +86,53 @@ def test_refresh_replaces_both_tokens(tmp_path, monkeypatch, account_info):
     assert saved['refresh_token'] == 'refresh-test' and saved['address'] == ADDRESS
     assert saved['account_verified'] is True
     account_info.assert_called_once()
-    assert path.stat().st_mode & 0o777 == 0o600
+    if not oauth._WINDOWS:
+        assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_windows_token_refresh_locks_store_and_closes_temp_before_replace(tmp_path, monkeypatch):
+    path = tmp_path / 'oauth.json'
+    path.write_text(json.dumps({
+        'address': ADDRESS, 'client_id': 'client-test', 'client_secret': 'secret-test',
+        'access_token': 'expired', 'refresh_token': 'previous-refresh', 'refresh_at': 1,
+        'account_verified': True,
+    }))
+    monkeypatch.setenv('YANDEX_MAIL_OAUTH_FILE', str(path))
+    monkeypatch.setattr(oauth, '_WINDOWS', True)
+    msvcrt = Mock(LK_LOCK=1, LK_UNLCK=0)
+    monkeypatch.setitem(sys.modules, 'msvcrt', msvcrt)
+    monkeypatch.setattr(oauth, '_post', Mock(return_value=TOKEN))
+    temp_files = []
+    make_temp = oauth.NamedTemporaryFile
+    replace = oauth.os.replace
+
+    def capture_temp(*args, **kwargs):
+        temp = make_temp(*args, **kwargs)
+        temp_files.append(temp)
+        return temp
+
+    def replace_closed(src, dst):
+        assert temp_files[-1].closed
+        replace(src, dst)
+
+    monkeypatch.setattr(oauth, 'NamedTemporaryFile', capture_temp)
+    monkeypatch.setattr(oauth.os, 'replace', replace_closed)
+    assert oauth.YandexMailOAuth(ADDRESS).access_token() == 'access-test'
+    lock, unlock = (call.args for call in msvcrt.locking.call_args_list)
+    assert lock == (unlock[0], msvcrt.LK_LOCK, 1)
+    assert unlock == (lock[0], msvcrt.LK_UNLCK, 1)
+    assert json.loads(path.read_text())['refresh_token'] == 'refresh-test'
+
+
+def test_oauth_sync_reports_missing_module_name(app_ctx, monkeypatch, caplog):
+    monkeypatch.setenv('YANDEX_MAIL_ADDRESS', ADDRESS)
+    monkeypatch.setenv('YANDEX_MAIL_AUTH', 'oauth')
+    monkeypatch.setattr(oauth.YandexMailOAuth, 'access_token',
+                        Mock(side_effect=ModuleNotFoundError('private details', name='example_module')))
+    result = app_ctx.yandex_requests.run(import_only=True)
+    assert result['status'] == 'error'
+    assert 'этап=OAuth, причина=ModuleNotFoundError (example_module)' in caplog.text
+    assert 'private details' not in caplog.text
 
 
 def test_imap_and_smtp_use_xoauth2_with_full_address(monkeypatch):

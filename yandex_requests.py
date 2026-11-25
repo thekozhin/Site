@@ -39,6 +39,16 @@ SENT_STEPS = ('sent_copy', 'sent_mark')
 MAINTENANCE_LOOKBACK = timedelta(days=1)
 
 
+def _error_summary(exc):
+    if isinstance(exc, MailError):
+        return str(exc)
+    error = type(exc).__name__
+    if (isinstance(exc, ModuleNotFoundError) and isinstance(exc.name, str)
+            and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.]{0,127}', exc.name)):
+        return f'{error} ({exc.name})'
+    return error
+
+
 class YandexRequests:
     def __init__(self, app, db, Task, Car, Elcar):
         self.app, self.db, self.Task = app, db, Task
@@ -217,7 +227,7 @@ class YandexRequests:
                         if attempt:
                             raise
         except Exception as exc:
-            error = str(exc) if isinstance(exc, MailError) else type(exc).__name__
+            error = _error_summary(exc)
             self.app.logger.warning('yandex-mail: борт=%s, task=%s, сбой отправки после закрытия: %s',
                                     board_number, task_id, error)
         finally:
@@ -531,7 +541,7 @@ class YandexRequests:
             else:
                 mail.mark_answered(link.folder, link.message_id, link.received_at)
         except (MailError, OSError) as exc:
-            error = str(exc) if isinstance(exc, MailError) else type(exc).__name__
+            error = _error_summary(exc)
             stage = 'копия в отправленных' if state == 'sent_copy' else 'отметка на исходном письме'
             self._retry_reply(link, state, error)
             self.app.logger.warning('yandex-mail: борт=%s, task=%s, SMTP принял ответ, сбой IMAP (%s): %s',
@@ -688,7 +698,7 @@ class YandexRequests:
         except Exception as exc:
             # Форматируем только сообщения, созданные в интеграции, и коды ошибок.
             # Ответы серверов и параметры SQL могут содержать данные письма.
-            error = str(exc) if isinstance(exc, MailError) else type(exc).__name__
+            error = _error_summary(exc)
             if isinstance(exc, SQLAlchemyError):
                 args = getattr(getattr(exc, 'orig', None), 'args', ())
                 if args and isinstance(args[0], int):
