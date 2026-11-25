@@ -1,3 +1,4 @@
+import errno
 import imaplib
 import smtplib
 from contextlib import nullcontext
@@ -7,6 +8,8 @@ from io import BytesIO
 from unittest.mock import Mock
 
 import pytest
+
+import yandex_mail
 from openpyxl import Workbook
 
 from completion_checks import utcnow
@@ -93,6 +96,45 @@ def test_imap_disconnect_records_command_without_provider_data():
     with pytest.raises(ImapConnectionError, match='IMAP UID SEARCH') as error:
         mailbox._search('UNANSWERED')
     assert 'private-provider-message' not in str(error.value)
+
+
+@pytest.mark.parametrize(('mode', 'expected'), [
+    ('bye', 'сервер прислал BYE'),
+    ('eof', 'EOF от соединения'),
+    ('reset', f'ConnectionResetError, errno={errno.ECONNRESET}'),
+])
+def test_fetch_failure_includes_batch_timing_and_safe_cause(mode, expected, monkeypatch):
+    mailbox = YandexMailbox(ADDRESS, 'mock-secret', 'Sent')
+    mailbox.imap = Mock(untagged_responses={'BYE': [b'private-provider-message']} if mode == 'bye' else {})
+    mailbox.imap.select.return_value = 'OK', [b'65']
+    ticks = Mock(side_effect=[1, 20, 26.5])
+    monkeypatch.setattr(yandex_mail, 'monotonic', ticks)
+    uids = [str(uid).encode() for uid in range(1, 66)]
+
+    def reply(command, _, *args):
+        if command == 'SEARCH':
+            return 'OK', [b' '.join(uids)]
+        if mailbox.imap.uid.call_count == 2:
+            return 'OK', [None]
+        try:
+            if mode == 'reset':
+                try:
+                    raise ConnectionResetError(errno.ECONNRESET, 'private-provider-message')
+                except OSError:
+                    raise imaplib.IMAP4.abort('private-provider-message')
+            raise imaplib.IMAP4.abort('socket error: EOF' if mode == 'eof' else 'private-provider-message')
+        except imaplib.IMAP4.abort as exc:
+            raise imaplib.IMAP4.abort(f'command: UID => {exc}')
+    mailbox.imap.uid.side_effect = reply
+
+    with pytest.raises(ImapConnectionError) as error:
+        mailbox.reply_parents_since(date(2026, 11, 25))
+
+    details = str(error.value)
+    assert 'IMAP UID FETCH' in details and expected in details
+    assert 'FETCH: заголовки отправленных ответов, писем в пакете=1' in details
+    assert 'обработано до сбоя=64/65, команда=6.50 с' in details
+    assert 'private-provider-message' not in details
 
 
 def test_sent_replies_are_checked_in_one_date_query_using_exact_headers():

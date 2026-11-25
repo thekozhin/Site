@@ -15,6 +15,7 @@ from email.parser import BytesParser
 from email.utils import format_datetime, parsedate_to_datetime
 from io import BytesIO
 from pathlib import PurePath
+from time import monotonic
 from zipfile import ZipFile
 from zoneinfo import ZoneInfo
 
@@ -315,12 +316,40 @@ class YandexMailbox:
         with suppress(imaplib.IMAP4.error, OSError):
             self.imap.logout()
 
-    @staticmethod
-    def _imap_call(operation, method, *args, **kwargs):
+    def _imap_call(self, operation, method, *args, **kwargs):
         try:
             return method(*args, **kwargs)
         except (imaplib.IMAP4.abort, OSError) as exc:
-            raise ImapConnectionError(f'IMAP {operation}: соединение прервано ({_connection_error_code(exc)}).') from None
+            reason = _connection_error_code(exc)
+            network_error = exc
+            if isinstance(exc, imaplib.IMAP4.abort):
+                responses = getattr(self.imap, 'untagged_responses', None)
+                if isinstance(responses, dict) and responses.get('BYE'):
+                    reason += ', сервер прислал BYE'
+                else:
+                    # imaplib может повторно обернуть сетевую ошибку в abort.
+                    for _ in range(4):
+                        if str(network_error) == 'socket error: EOF':
+                            reason += ', EOF от соединения'
+                            break
+                        if str(network_error).startswith('socket error: unterminated line:'):
+                            reason += ', неполный ответ сервера'
+                            break
+                        underlying = network_error.__cause__ or network_error.__context__
+                        if isinstance(underlying, OSError):
+                            network_error = underlying
+                            reason += f', {type(network_error).__name__}'
+                            break
+                        if not isinstance(underlying, imaplib.IMAP4.abort):
+                            break
+                        network_error = underlying
+            if isinstance(network_error, OSError):
+                if isinstance(network_error.errno, int):
+                    reason += f', errno={network_error.errno}'
+                winerror = getattr(network_error, 'winerror', None)
+                if isinstance(winerror, int):
+                    reason += f', winerror={winerror}'
+            raise ImapConnectionError(f'IMAP {operation}: соединение прервано ({reason}).') from None
         except imaplib.IMAP4.error:
             raise ImapCommandError(f'Яндекс Почта отклонила команду IMAP {operation}.') from None
 
@@ -362,9 +391,18 @@ class YandexMailbox:
         values = self._uid('SEARCH', None, *args)
         return values[0].split() if values and values[0] else []
 
-    def _fetch(self, uids, fields):
-        for start in range(0, len(uids), 64):
-            values = self._uid('FETCH', b','.join(uids[start:start + 64]), f'({fields})')
+    def _fetch(self, uids, fields, *, purpose):
+        batch_size = 64
+        for start in range(0, len(uids), batch_size):
+            batch = uids[start:start + batch_size]
+            started = monotonic()
+            try:
+                values = self._uid('FETCH', b','.join(batch), f'({fields})')
+            except (ImapConnectionError, ImapCommandError) as exc:
+                raise type(exc)(
+                    f'{exc} FETCH: {purpose}, писем в пакете={len(batch)}, '
+                    f'обработано до сбоя={start}/{len(uids)}, команда={monotonic() - started:.2f} с.'
+                ) from None
             literal = None
             for value in values:
                 if literal is not None:
@@ -410,7 +448,7 @@ class YandexMailbox:
         for start in range(0, len(uids), 64):
             self._select(wire_folder)
             originals = []
-            for flags, header in self._fetch(uids[start:start + 64], fields):
+            for flags, header in self._fetch(uids[start:start + 64], fields, purpose='заголовки входящих'):
                 uid = re.search(rb'\bUID (\d+)', flags)
                 stamp = re.search(rb'\bINTERNALDATE "([^"]+)"', flags)
                 size = re.search(rb'\bRFC822\.SIZE (\d+)', flags)
@@ -429,7 +467,8 @@ class YandexMailbox:
 
     def download(self, folder, original):
         self._select(_imap_folder(folder))
-        values = list(self._fetch([original.uid], f'BODY.PEEK[]<0.{MAX_MESSAGE_SIZE + 1}>'))
+        values = list(self._fetch([original.uid], f'BODY.PEEK[]<0.{MAX_MESSAGE_SIZE + 1}>',
+                                  purpose='чтение письма с вложением'))
         if len(values) != 1 or len(values[0][1]) > MAX_MESSAGE_SIZE:
             raise InvalidRequest('Письмо с вложением недоступно или слишком большое.')
         return values[0][1]
@@ -450,14 +489,15 @@ class YandexMailbox:
         # и сверяем заголовки ответов локально, без загрузки тела писем.
         uids = self._search('SINCE', _imap_date(search_day))
         parents = set()
-        for flags, raw in self._fetch(uids, 'UID FLAGS BODY.PEEK[HEADER.FIELDS (IN-REPLY-TO REFERENCES)]'):
+        for flags, raw in self._fetch(uids, 'UID FLAGS BODY.PEEK[HEADER.FIELDS (IN-REPLY-TO REFERENCES)]',
+                                      purpose='заголовки отправленных ответов'):
             if b'\\deleted' not in {flag.lower() for flag in imaplib.ParseFlags(flags)}:
                 headers = BytesParser(policy=policy.default).parsebytes(raw, headersonly=True)
                 parents.update(_reply_parent(headers))
         self.sent_parents_since = received_day, parents
         return parents
 
-    def _messages_with_id(self, message_id, day):
+    def _messages_with_id(self, message_id, day, *, purpose):
         try:
             uids = self._search('UNDELETED', 'HEADER', 'MESSAGE-ID', _quote(message_id))
         except ImapCommandError:
@@ -465,7 +505,7 @@ class YandexMailbox:
             # и проверяем точный Message-ID по заголовкам, без загрузки писем.
             uids = self._search('UNDELETED', 'SINCE', _imap_date(day - timedelta(days=1)),
                                 'BEFORE', _imap_date(day + timedelta(days=2)))
-        for info, raw in self._fetch(uids, 'UID FLAGS BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]'):
+        for info, raw in self._fetch(uids, 'UID FLAGS BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]', purpose=purpose):
             uid = re.search(rb'\bUID (\d+)', info)
             flags = {flag.lower() for flag in imaplib.ParseFlags(info)}
             if uid and b'\\deleted' not in flags and _message_id(BytesParser(policy=policy.default).parsebytes(raw, headersonly=True)) == message_id:
@@ -473,7 +513,7 @@ class YandexMailbox:
 
     def _original(self, folder, message_id, received_at, readonly=True):
         self._select(_imap_folder(folder), readonly=readonly)
-        matches = list(self._messages_with_id(message_id, received_at.date()))
+        matches = list(self._messages_with_id(message_id, received_at.date(), purpose='исходное письмо'))
         if len(matches) != 1:
             return None
         return matches[0]
@@ -545,4 +585,5 @@ class YandexMailbox:
 
     def has_sent_copy(self, message_id, sent_at):
         self._select(self._sent_folder())
-        return any(self._messages_with_id(message_id, sent_at.astimezone(MOSCOW).date()))
+        return any(self._messages_with_id(message_id, sent_at.astimezone(MOSCOW).date(),
+                                          purpose='копия отправленного ответа'))
