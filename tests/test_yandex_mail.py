@@ -363,7 +363,7 @@ def test_import_distinguishes_repair_numbers_and_skips_replies(app_ctx, caplog):
     args = mail, ADDRESS, {PARK: FOLDER}, received.date()
     first = mod.yandex_requests.import_requests(*args, apply=True)
     mail.reply_parents_since.assert_called_once_with(received.date())
-    assert first == dict(created=1, linked=1, duplicate=1, active_board=0, answered=1, invalid=1, unknown_board=0, preview=0)
+    assert first == dict(created=1, linked=1, updated=0, duplicate=1, active_board=0, answered=1, invalid=1, unknown_board=0, preview=0)
     assert 'Яндекс Почта | 14 парк | Добавлены борта 164076' in caplog.text
     caplog.clear()
     second = mod.yandex_requests.import_requests(*args, apply=True)
@@ -407,6 +407,56 @@ def test_new_mail_with_board_in_subject_replaces_description_and_gets_its_own_re
     assert {str(call.args[0]['In-Reply-To']) for call in mail.send_reply.call_args_list} == {ORIGINAL_ID, new_id}
     assert {item.reply_state for item in requests._links(task_id)} == {'sent'}
     assert requests.deliver_replies(mail, ADDRESS, task_id=task_id) == 0
+
+
+def test_same_ticket_newer_workbook_replaces_description_once(app_ctx):
+    mod = app_ctx
+    requests = mod.yandex_requests
+    board, ticket = '162841', 'УА160225248'
+    mod.db.session.add(mod.Car(bort=board, location=PARK))
+    mod.db.session.commit()
+    received = datetime(2026, 11, 25, 7, 23, tzinfo=MOSCOW)
+    wrong_sender_id = '<other-sender@example.org>'
+    revision_id = '<revision@example.org>'
+    stale_id = '<stale@example.org>'
+    supplement_id = '<older-supplement@example.org>'
+    closed_id = '<after-close@example.org>'
+    updated = ('Фара ближнего света', 'Блокировка хода при открытых дверях', 'Ошибки на панели')
+    mail = fake_mail(received, {
+        ORIGINAL_ID: mail_message(ORIGINAL_ID, ticket, board, defects=('Фара ближнего света',)),
+        revision_id: mail_message(revision_id, ticket, board, defects=updated),
+        stale_id: mail_message(stale_id, ticket, board, defects=('Ошибки на панели',)),
+        supplement_id: mail_message(supplement_id, 'УА160225249', board, defects=('Старый текст',)),
+        closed_id: mail_message(closed_id, ticket, board, defects=('После закрытия',)),
+        wrong_sender_id: mail_message(wrong_sender_id, ticket, board, defects=('Чужое письмо',),
+                                     sender='another@example.org'),
+    })
+
+    def sync(uid, message_id, minutes):
+        mail.unanswered.return_value = [[OriginalMail(str(uid).encode(), message_id,
+                                                      received + timedelta(minutes=minutes), board)]]
+        return requests.import_requests(mail, ADDRESS, {PARK: 'INBOX'}, None, apply=True)
+
+    assert sync(1, ORIGINAL_ID, 0)['created'] == 1
+    task_id = mod.Task.query.one().id
+    assert sync(4, revision_id, 15)['updated'] == 1
+    mail.download.reset_mock()
+    assert sync(4, revision_id, 15)['duplicate'] == 1
+    mail.download.assert_not_called()
+    assert sync(2, stale_id, 5)['duplicate'] == 1
+    assert sync(3, supplement_id, 10)['linked'] == 1
+    assert sync(5, wrong_sender_id, 20)['duplicate'] == 1
+
+    task = mod.Task.query.one()
+    assert task.id == task_id and task.description.splitlines() == list(updated)
+    link = requests.model.query.filter_by(ticket_number=ticket).one()
+    assert link.message_id == ORIGINAL_ID and link.reply_state == 'open'
+    assert link.received_at == received.replace(tzinfo=None)
+    assert link.revision_received_at == (received + timedelta(minutes=15)).replace(tzinfo=None)
+    task.status = 'completed'
+    mod.db.session.commit()
+    assert sync(6, closed_id, 25)['duplicate'] == 1
+    assert mod.Task.query.one().description.splitlines() == list(updated)
 
 
 def test_inbox_links_matching_manual_task_and_keeps_its_author(completion, monkeypatch):

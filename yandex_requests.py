@@ -66,6 +66,8 @@ class YandexRequests:
             recipient = db.Column(db.String(254), nullable=False)
             subject = db.Column(db.String(500), nullable=False)
             received_at = db.Column(db.DateTime, nullable=False)
+            revision_received_at = db.Column(db.DateTime)
+            revision_message_key = db.Column(db.String(64), index=True)
             reply_state = db.Column(db.String(16), nullable=False, default='open')
             reply_text = db.Column(db.Text)
             reply_attempt_at = db.Column(db.DateTime)
@@ -145,7 +147,9 @@ class YandexRequests:
 
     def _links(self, task_id):
         link = self.model
-        return link.query.filter_by(task_id=task_id).order_by(link.received_at.desc(), link.message_key.desc())
+        return link.query.filter_by(task_id=task_id).order_by(
+            func.coalesce(link.revision_received_at, link.received_at).desc(), link.message_key.desc(),
+        )
 
     def queue_reply(self, task, *, deferred=False):
         if not self._eligible_task(task):
@@ -308,12 +312,15 @@ class YandexRequests:
                     break
             else:
                 return 'unknown_board'
-            if self.model.query.filter_by(mailbox=mailbox, park=park, ticket_number=ticket.ticket_number).first():
-                return 'duplicate'
+            existing = self.model.query.filter_by(
+                mailbox=mailbox, park=park, ticket_number=ticket.ticket_number,
+            ).first()
             received_at = original.received_at.astimezone(MOSCOW).replace(tzinfo=None)
             active_repairs = active_repairs_for_board(self.Task, ticket.board_number).with_for_update().all()
             same_board = [row for row in active_repairs if (row.park, row.board_number) == (park, ticket.board_number)]
             service_kind = maintenance_kind(ticket.description)
+            if existing is not None:
+                return self._apply_ticket_revision(existing, same_board, ticket, received_at, key, service_kind)
             if service_kind:
                 planned = [row for row in same_board if self._planned_mail_kind(row) == service_kind
                            and row.created_at is not None and received_at >= row.created_at - MAINTENANCE_LOOKBACK]
@@ -340,7 +347,7 @@ class YandexRequests:
                               and self._links(task.id).with_for_update().first() is None)
                 if len(matched) == 1:
                     task, latest = matched[0]
-                    if received_at >= latest.received_at:
+                    if received_at >= (latest.revision_received_at or latest.received_at):
                         task.description = ticket.description
                     extras = []
                 else:
@@ -378,6 +385,23 @@ class YandexRequests:
         finally:
             self.db.session.remove()
 
+    def _apply_ticket_revision(self, link, active_tasks, ticket, received_at, key, service_kind):
+        task = next((task for task in active_tasks if task.id == link.task_id), None)
+        if (task is None or service_kind or self._planned_mail_kind(task) or link.board_number != ticket.board_number
+                or link.recipient.casefold() != ticket.recipient.casefold()
+                or key in (link.message_key, link.revision_message_key)):
+            return 'duplicate'
+        latest = self._links(task.id).with_for_update().first()
+        if received_at <= (latest.revision_received_at or latest.received_at):
+            return 'duplicate'
+
+        changed = task.description != ticket.description
+        task.description = ticket.description
+        link.revision_received_at = received_at
+        link.revision_message_key = key
+        self.db.session.commit()
+        return 'updated' if changed else 'duplicate'
+
     def _boards_for_park(self, park, boards):
         registered = set()
         try:
@@ -389,7 +413,7 @@ class YandexRequests:
         return registered
 
     def import_requests(self, mail, address, folders, start, apply):
-        counts = dict(created=0, linked=0, duplicate=0, active_board=0, answered=0, invalid=0, unknown_board=0, preview=0)
+        counts = dict(created=0, linked=0, updated=0, duplicate=0, active_board=0, answered=0, invalid=0, unknown_board=0, preview=0)
         sent_from = None
         replied_to = set()
         for park, folder in folders.items():
@@ -397,7 +421,10 @@ class YandexRequests:
             for batch in mail.unanswered(folder, start):
                 candidates = {hashlib.sha256(f'{address}\n{item.message_id}'.encode()).hexdigest(): item for item in batch}
                 if apply and candidates:
-                    known = self.db.session.query(self.model.message_key).filter(self.model.message_key.in_(candidates)).all()
+                    link = self.model
+                    originals = self.db.session.query(link.message_key).filter(link.message_key.in_(candidates))
+                    revisions = self.db.session.query(link.revision_message_key).filter(link.revision_message_key.in_(candidates))
+                    known = originals.union(revisions).all()
                     self.db.session.remove()
                     for key, in known:
                         candidates.pop(key)
