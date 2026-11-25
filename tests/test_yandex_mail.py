@@ -364,11 +364,11 @@ def test_import_distinguishes_repair_numbers_and_skips_replies(app_ctx, caplog):
     first = mod.yandex_requests.import_requests(*args, apply=True)
     mail.reply_parents_since.assert_called_once_with(received.date())
     assert first == dict(created=1, linked=1, updated=0, duplicate=1, active_board=0, answered=1, invalid=1, unknown_board=0, preview=0)
-    assert 'Яндекс Почта | 14 парк | Добавлены борта 164076' in caplog.text
+    assert '14 парк 164076 добавлена заявка' in caplog.text
     caplog.clear()
     second = mod.yandex_requests.import_requests(*args, apply=True)
     assert second['created'] == 0 and mod.Task.query.count() == 1
-    assert 'Добавлены борта' not in caplog.text
+    assert 'добавлена заявка' not in caplog.text
     assert {task.description for task in mod.Task.query} == {'Течь рулевой рейки\nСтук'}
     assert {task.tag for task in mod.Task.query} == {'waiting'}
 
@@ -409,7 +409,7 @@ def test_new_mail_with_board_in_subject_replaces_description_and_gets_its_own_re
     assert requests.deliver_replies(mail, ADDRESS, task_id=task_id) == 0
 
 
-def test_same_ticket_newer_workbook_replaces_description_once(app_ctx):
+def test_same_ticket_newer_workbook_replaces_description_once(app_ctx, caplog):
     mod = app_ctx
     requests = mod.yandex_requests
     board, ticket = '162841', 'УА160225248'
@@ -440,12 +440,15 @@ def test_same_ticket_newer_workbook_replaces_description_once(app_ctx):
     assert sync(1, ORIGINAL_ID, 0)['created'] == 1
     task_id = mod.Task.query.one().id
     assert sync(4, revision_id, 15)['updated'] == 1
+    assert '14 парк 162841 изменено описание неисправностей' in caplog.text
+    caplog.clear()
     mail.download.reset_mock()
     assert sync(4, revision_id, 15)['duplicate'] == 1
     mail.download.assert_not_called()
     assert sync(2, stale_id, 5)['duplicate'] == 1
     assert sync(3, supplement_id, 10)['linked'] == 1
     assert sync(5, wrong_sender_id, 20)['duplicate'] == 1
+    assert 'изменено описание неисправностей' not in caplog.text
 
     task = mod.Task.query.one()
     assert task.id == task_id and task.description.splitlines() == list(updated)
@@ -699,15 +702,17 @@ def test_completion_keeps_incontrol_check_and_sends_exact_reply(completion, monk
     stored = mod.yandex_requests.model.query.one()
     assert stored.reply_state == delivery
     event = {
-        'sent': 'SMTP подтвердил отправку',
         'answered': 'ответ уже есть',
         'verify': 'отправка не подтверждена',
         'pending': 'ответ остался в очереди',
         'review': 'требуется проверка в списке «К отписке»',
         'sent_copy': 'SMTP принял ответ, сбой IMAP (копия в отправленных)',
         'sent_mark': 'SMTP принял ответ, сбой IMAP (отметка на исходном письме)',
-    }[delivery]
-    assert f'yandex-mail: борт=164076, task={task_id}, {event}' in caplog.text
+    }.get(delivery)
+    if event:
+        assert f'yandex-mail: борт=164076, task={task_id}, {event}' in caplog.text
+    success = '14 парк 164076 ответ в почту отправлен'
+    assert (success in caplog.text) == (delivery in ('sent', 'sent_copy', 'sent_mark'))
 
     if delivery == 'sent':
         reply = mail.send_reply.call_args.args[0]

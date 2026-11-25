@@ -320,7 +320,11 @@ class YandexRequests:
             same_board = [row for row in active_repairs if (row.park, row.board_number) == (park, ticket.board_number)]
             service_kind = maintenance_kind(ticket.description)
             if existing is not None:
-                return self._apply_ticket_revision(existing, same_board, ticket, received_at, key, service_kind)
+                result = self._apply_ticket_revision(existing, same_board, ticket, received_at, key, service_kind)
+                if result == 'updated':
+                    self._log_description_update(park, ticket.board_number)
+                return result
+            description_changed = False
             if service_kind:
                 planned = [row for row in same_board if self._planned_mail_kind(row) == service_kind
                            and row.created_at is not None and received_at >= row.created_at - MAINTENANCE_LOOKBACK]
@@ -348,6 +352,7 @@ class YandexRequests:
                 if len(matched) == 1:
                     task, latest = matched[0]
                     if received_at >= (latest.revision_received_at or latest.received_at):
+                        description_changed = task.description != ticket.description
                         task.description = ticket.description
                     extras = []
                 else:
@@ -356,6 +361,7 @@ class YandexRequests:
                     return 'active_board'
                 if extras:
                     task.description = '\n'.join((task.description.rstrip(), *extras))
+                    description_changed = True
                 result = 'linked'
             else:
                 result = 'created'
@@ -374,6 +380,10 @@ class YandexRequests:
                 received_at=received_at,
             ))
             self.db.session.commit()
+            if result == 'created':
+                self.app.logger.info('%s %s добавлена заявка', park, ticket.board_number)
+            elif description_changed:
+                self._log_description_update(park, ticket.board_number)
             return result
         except IntegrityError:
             self.db.session.rollback()
@@ -402,6 +412,9 @@ class YandexRequests:
         self.db.session.commit()
         return 'updated' if changed else 'duplicate'
 
+    def _log_description_update(self, park, board_number):
+        self.app.logger.info('%s %s изменено описание неисправностей', park, board_number)
+
     def _boards_for_park(self, park, boards):
         registered = set()
         try:
@@ -417,7 +430,6 @@ class YandexRequests:
         sent_from = None
         replied_to = set()
         for park, folder in folders.items():
-            added_boards = []
             for batch in mail.unanswered(folder, start):
                 candidates = {hashlib.sha256(f'{address}\n{item.message_id}'.encode()).hexdigest(): item for item in batch}
                 if apply and candidates:
@@ -453,13 +465,9 @@ class YandexRequests:
                     if apply:
                         result = self._add_task(address, park, folder, item, key, ticket)
                         counts[result] += 1
-                        if result == 'created':
-                            added_boards.append(ticket.board_number)
                     else:
                         counts['preview'] += 1
                         click.echo(f'{park} | {ticket.ticket_number} | {ticket.board_number} | {ticket.description}')
-            if added_boards:
-                self.app.logger.info('Яндекс Почта | %s | Добавлены борта %s', park, ', '.join(added_boards))
         return counts
 
     def _set_reply_state(self, message_key, state, *, expected_states, error=None, retry_count=0, next_at=None):
@@ -534,8 +542,6 @@ class YandexRequests:
             self._recover_sent(mail, message_key, 'sent_mark')
         else:
             self._set_reply_state(message_key, 'sent', expected_states=(state,))
-            self.app.logger.info('yandex-mail: борт=%s, task=%s, копия ответа и отметка сохранены',
-                                 link.board_number, link.task_id)
 
     def _stage_review(self, link, *, expected_state, error):
         current = self.db.session.get(self.model, link.message_key, with_for_update=True)
@@ -568,6 +574,7 @@ class YandexRequests:
                                             link.reply_attempt_at.replace(tzinfo=timezone.utc) if link.reply_attempt_at
                                             else utcnow().replace(tzinfo=timezone.utc)):
             self._set_reply_state(link.message_key, 'sent_mark', expected_states=expected_states)
+            logger.info('%s %s ответ в почту отправлен', link.park, board)
             self._recover_sent(mail, link.message_key, 'sent_mark')
             return
         original_answered = mail.original_answered(link.folder, link.message_id, link.received_at)
@@ -594,7 +601,6 @@ class YandexRequests:
         if not self._claim_reply(link.message_key):
             return
         expected_states = ('sending',)
-        logger.info('yandex-mail: борт=%s, task=%s, отправляем ответ', board, task_id)
         try:
             mail.send_reply(reply)
         except UncertainDelivery as exc:
@@ -609,7 +615,7 @@ class YandexRequests:
             self._retry_reply(link, 'pending', str(exc), expected_states=expected_states)
             logger.warning('yandex-mail: борт=%s, task=%s, ответ остался в очереди: %s', board, task_id, exc)
             return
-        logger.info('yandex-mail: борт=%s, task=%s, SMTP подтвердил отправку', board, task_id)
+        logger.info('%s %s ответ в почту отправлен', link.park, board)
         self._set_reply_state(link.message_key, 'sent_copy', expected_states=expected_states)
         self._recover_sent(mail, link.message_key, 'sent_copy')
 
