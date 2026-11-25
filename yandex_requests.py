@@ -39,6 +39,7 @@ REPLY_PASS_SECONDS = 45
 RETRY_MINUTES = (1, 5, 15)
 SENT_STEPS = ('sent_copy', 'sent_mark')
 MAINTENANCE_LOOKBACK = timedelta(days=1)
+REPAIR_REPLY_LOOKBACK = timedelta(days=7)
 
 
 def _error_summary(exc):
@@ -237,15 +238,15 @@ class YandexRequests:
 
     def _latest_unanswered(self, mail, folder, task):
         planned_kind = self._planned_mail_kind(task)
-        if planned_kind and task.created_at is None:
+        if task.created_at is None:
             return None, None
-        start_at = task.created_at - MAINTENANCE_LOOKBACK if planned_kind else None
+        start_at = task.created_at - (MAINTENANCE_LOOKBACK if planned_kind else REPAIR_REPLY_LOOKBACK)
         candidates = []
         for batch in mail.unanswered(folder, start_at, board_number=task.board_number):
             for item in batch:
                 received_at = item.received_at.astimezone(MOSCOW).replace(tzinfo=None)
                 if (item.board_number == task.board_number and received_at <= task.completed_at
-                        and (start_at is None or received_at >= start_at)):
+                        and received_at >= start_at):
                     candidates.append(item)
         candidates.sort(key=lambda item: (item.received_at, int(item.uid)), reverse=True)
         for item in candidates:

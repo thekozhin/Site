@@ -676,7 +676,8 @@ def test_manual_closure_uses_latest_unanswered_subject(completion, monkeypatch, 
 
     monkeypatch.setenv('YANDEX_MAIL_IMPORT_FROM', (completed_at + timedelta(hours=2)).isoformat())
     requests.resolve_reply_lookups(mail, ADDRESS, {PARK: 'INBOX'}, task_id=task_id)
-    mail.unanswered.assert_called_with('INBOX', None, board_number='164076')
+    mail.unanswered.assert_called_with('INBOX', saved_task(completion).created_at - timedelta(days=7),
+                                       board_number='164076')
     link = requests.model.query.filter_by(task_id=task_id).one_or_none()
     assert not saved_task(completion).yandex_reply_lookup
     if previous_link in ('active', 'orphan_other_repair'):

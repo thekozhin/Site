@@ -460,17 +460,7 @@ class YandexMailbox:
             # IMAP отбирает по дню, точное время сверяем по INTERNALDATE ниже.
             search_day = day - timedelta(days=1) if day > date.min else day
             search.extend(('SINCE', _imap_date(search_day)))
-        if board_number:
-            subject = ('SUBJECT', _quote(board_number))
-            try:
-                uids = self._search(*search, *subject)
-            except ImapCommandError:
-                try:
-                    uids = self._search(*subject)
-                except ImapCommandError:
-                    uids = self._search(*search)
-        else:
-            uids = self._search(*search)
+        uids = self._search(*search)
         headers = 'MESSAGE-ID SUBJECT' if inbox or board_number else 'MESSAGE-ID'
         fields = f'UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER.FIELDS ({headers})]'
         for start in range(0, len(uids), 64):
