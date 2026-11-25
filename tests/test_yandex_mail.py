@@ -109,6 +109,8 @@ def test_sent_replies_are_checked_in_one_date_query_using_exact_headers():
     ]
 
     assert mailbox.reply_parents_since(date(2026, 11, 23)) == {'<first@example.org>', '<second@example.org>'}
+    assert mailbox.has_reply('<first@example.org>', datetime(2026, 11, 23, 9, tzinfo=MOSCOW))
+    assert not mailbox.has_reply('<ancestor@example.org>', datetime(2026, 11, 23, 9, tzinfo=MOSCOW))
     assert mailbox.imap.uid.call_args_list[0].args == ('SEARCH', None, 'SINCE', '22-Nov-2026')
     assert mailbox.imap.uid.call_count == 2
 
@@ -139,6 +141,44 @@ def test_scheduled_replies_retry_imap_and_process_linked_replies_first(app_ctx, 
 
     assert requests.run(replies_only=True) is None
     assert [call[0] for call in steps.mock_calls] == ['deliver', 'lookup', 'deliver', 'lookup']
+
+
+def test_scheduled_reply_timeout_defers_only_affected_message(app_ctx, monkeypatch):
+    mod = app_ctx
+    requests = mod.yandex_requests
+    monkeypatch.setenv('YANDEX_MAIL_FOLDERS', '{"14 парк":"INBOX"}')
+    boards = ('164076', '164077')
+    mod.db.session.add_all(mod.Car(bort=board, location=PARK) for board in boards)
+    mod.db.session.commit()
+    received = datetime.now(MOSCOW)
+    other_id = '<other-board@example.org>'
+    messages = fake_mail(received, {
+        ORIGINAL_ID: mail_message(ORIGINAL_ID, 'УА160222071', boards[0]),
+        other_id: mail_message(other_id, 'УА160222072', boards[1]),
+    })
+    messages.unanswered.return_value = [[OriginalMail(b'1', ORIGINAL_ID, received, boards[0]),
+                                        OriginalMail(b'2', other_id, received, boards[1])]]
+    assert requests.import_requests(messages, ADDRESS, {PARK: 'INBOX'}, None, apply=True)['created'] == 2
+    for task in mod.Task.query.order_by(mod.Task.id):
+        task.status = 'completed'
+        task.completed_work = WORK
+        requests.queue_reply(task)
+    mod.db.session.commit()
+
+    attempted = []
+    def deliver(mail, item):
+        attempted.append(item.board_number)
+        if item.board_number == boards[0]:
+            raise ImapConnectionError('IMAP UID SEARCH (TimeoutError)')
+    monkeypatch.setattr(requests, '_deliver', deliver)
+
+    with pytest.raises(ImapConnectionError):
+        requests.deliver_replies(messages, ADDRESS)
+    assert requests.deliver_replies(messages, ADDRESS) == 1
+    assert attempted == list(boards)
+    link = requests.model.query.filter_by(board_number=boards[0]).one()
+    assert link.reply_state == 'pending'
+    assert link.reply_next_at > utcnow() and link.reply_retry_count == 0
 
 
 def test_immediate_reply_reopens_imap_before_retry(app_ctx, monkeypatch):

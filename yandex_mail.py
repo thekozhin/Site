@@ -284,10 +284,13 @@ class YandexMailbox:
         self.logger = logger if logger is not None else logging.getLogger(__name__)
         self.sent_folder = _imap_folder(sent_folder) if sent_folder else None
         self.selected = None
+        self.sent_parents_since = None
         self.smtp = None
         self.smtp_failed = False
 
     def __enter__(self):
+        self.selected = None
+        self.sent_parents_since = None
         host = OAUTH_IMAP_HOST if self.oauth_payload else IMAP_HOST
         method = 'XOAUTH2' if self.oauth_payload else 'LOGIN'
         try:
@@ -432,19 +435,18 @@ class YandexMailbox:
         return values[0][1]
 
     def has_reply(self, message_id, received_at):
-        self._select(self._sent_folder())
-        quoted = _quote(message_id)
-        since = _imap_date(received_at.date() - timedelta(days=1))
-        uids = self._search('UNDELETED', 'SINCE', since, 'OR', 'HEADER', 'IN-REPLY-TO', quoted, 'HEADER', 'REFERENCES', quoted)
-        for _, raw in self._fetch(uids, 'BODY.PEEK[HEADER.FIELDS (IN-REPLY-TO REFERENCES)]'):
-            if message_id in _reply_parent(BytesParser(policy=policy.default).parsebytes(raw, headersonly=True)):
-                return True
-        return False
+        received_day = received_at.date()
+        if received_at.tzinfo is not None:
+            received_day = received_at.astimezone(MOSCOW).date()
+        return message_id in self.reply_parents_since(received_day)
 
     def reply_parents_since(self, received_day):
+        cached = self.sent_parents_since
+        if cached is not None and received_day >= cached[0]:
+            return cached[1]
         self._select(self._sent_folder())
         search_day = received_day - timedelta(days=1) if received_day > date.min else received_day
-        # Яндекс может зависнуть на SEARCH по заголовкам. Ищем по дате один раз
+        # Яндекс может зависнуть на SEARCH по заголовкам. Ищем по дате
         # и сверяем заголовки ответов локально, без загрузки тела писем.
         uids = self._search('SINCE', _imap_date(search_day))
         parents = set()
@@ -452,6 +454,7 @@ class YandexMailbox:
             if b'\\deleted' not in {flag.lower() for flag in imaplib.ParseFlags(flags)}:
                 headers = BytesParser(policy=policy.default).parsebytes(raw, headersonly=True)
                 parents.update(_reply_parent(headers))
+        self.sent_parents_since = received_day, parents
         return parents
 
     def _messages_with_id(self, message_id, day):
@@ -537,6 +540,8 @@ class YandexMailbox:
                                     reply.as_bytes(policy=policy.SMTP))
         if status != 'OK':
             raise MailError('Ответ отправлен, но копию не удалось записать в папку отправленных.')
+        if self.sent_parents_since is not None:
+            self.sent_parents_since[1].update(_reply_parent(reply))
 
     def has_sent_copy(self, message_id, sent_at):
         self._select(self._sent_folder())

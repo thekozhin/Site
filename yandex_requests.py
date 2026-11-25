@@ -659,6 +659,15 @@ class YandexRequests:
             try:
                 self._deliver(mail, item)
             except ImapConnectionError as exc:
+                if task_id is None:
+                    now = utcnow()
+                    link.query.filter(
+                        link.message_key == item.message_key, link.reply_state == item.reply_state,
+                        or_(link.reply_next_at.is_(None), link.reply_next_at <= now),
+                    ).update({'reply_next_at': now + timedelta(minutes=RETRY_MINUTES[0]),
+                              'reply_error': str(exc)}, synchronize_session=False)
+                    self.db.session.commit()
+                    self.db.session.remove()
                 self.app.logger.warning('yandex-mail: борт=%s, task=%s, сбой проверки письма: %s',
                                         item.board_number, item.task_id, exc)
                 raise
