@@ -6616,6 +6616,11 @@ def add_scheduler_job(job_id, func, trigger):
     )
 
 
+def run_yandex_mail_cycle():
+    yandex_requests.run(replies_only=True)
+    return yandex_requests.run(import_only=True)
+
+
 def start_scheduler():
     from ktg_history import register_ktg_scheduler_jobs
     if scheduler.running:
@@ -6686,19 +6691,11 @@ def start_scheduler():
                 timezone=tz
             )
         )
-    # Импорт новых заявок из ЯндексПочты → Task (задать интервал)
     if yandex_requests.enabled():
-        mail_trigger = CronTrigger(minute='*/3', timezone=tz)
         add_scheduler_job(
             'yandex_mail_sync',
-            lambda: run_locked_sync_job('yandex_mail_sync', lambda: yandex_requests.run(import_only=True), 'yandex_mail'),
-            mail_trigger,
-        )
-        add_scheduler_job(
-            'yandex_mail_replies',
-            lambda: run_locked_sync_job('yandex_mail_replies', lambda: yandex_requests.run(replies_only=True),
-                                        'yandex_mail_replies'),
-            CronTrigger(second=5, timezone=tz),
+            lambda: run_locked_sync_job('yandex_mail_sync', run_yandex_mail_cycle, 'yandex_mail'),
+            CronTrigger(minute='*/1', timezone=tz),
         )
 
     scheduler.start()

@@ -528,6 +528,26 @@ def test_schedule_offsets_and_common_mutex(sync, monkeypatch):
     assert calls == ['refresh_incontrol_statuses', 'create_tasks_from_incontrol']
 
 
+def test_mail_scheduler_processes_replies_then_import_under_one_lock(sync, monkeypatch):
+    jobs = {}
+    monkeypatch.setenv('YANDEX_MAIL_ENABLED', '1')
+    monkeypatch.setattr(sync, 'add_scheduler_job', lambda name, fn, trigger: jobs.update({name: fn}))
+    monkeypatch.setattr(sync.scheduler, 'start', lambda: None)
+    monkeypatch.setattr(sync, 'run_startup_report_catchups', lambda: None)
+    run = Mock(side_effect=[{'status': 'error'}, {'created': 1}])
+    monkeypatch.setattr(sync.yandex_requests, 'run', run)
+    def locked(name, fn, scope):
+        assert (name, scope) == ('yandex_mail_sync', 'yandex_mail')
+        return fn()
+    monkeypatch.setattr(sync, 'run_locked_sync_job', locked)
+
+    sync.start_scheduler()
+
+    assert {name for name in jobs if name.startswith('yandex_mail')} == {'yandex_mail_sync'}
+    assert jobs['yandex_mail_sync']() == {'created': 1}
+    assert [call.kwargs for call in run.call_args_list] == [{'replies_only': True}, {'import_only': True}]
+
+
 def test_two_incontrol_ids_for_same_board_are_imported_after_each_other(sync, monkeypatch):
     add_car(sync)
     use_client(sync, monkeypatch, applications={1069: [incoming(123), incoming(124)]})
