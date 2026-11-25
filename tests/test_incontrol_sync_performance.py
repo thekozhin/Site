@@ -199,6 +199,66 @@ def test_import_network_never_holds_orm_connection_and_is_idempotent(sync, monke
     assert client.session.close.call_count == 2
 
 
+@pytest.mark.parametrize('link_source', ['task', 'previous_run', 'both', 'unlinked'])
+@pytest.mark.parametrize('fresh_phase', ['Принято.', 'Выполнено.'])
+def test_stk_return_reopens_the_same_finished_repair(sync, monkeypatch, link_source, fresh_phase):
+    mod = sync
+    previous_works = 'Заменили ремень генератора'
+    now = mod.incontrol_now()
+    task_id = add_task(mod, board='162850', incontrol_task_id=21774480 if link_source in ('task', 'both') else None)
+    task = mod.db.session.get(mod.Task, task_id)
+    task.status, task.tag = 'completed', 'success'
+    task.completed_at, task.completed_work, task.author_closed = now, previous_works, 'Мастер'
+    user = mod.User(username='stk-test', password='unused', full_name='Тест')
+    mod.db.session.add(user)
+    mod.db.session.flush()
+    run_model = mod.incontrol_rejections.model
+    if link_source in ('previous_run', 'both'):
+        mod.db.session.add(run_model(
+            id='prior-run', task_id=task_id, remote_id=21774480, user_id=user.id,
+            state='consumed', updated_at=now, payload_encrypted='unused-by-import',
+        ))
+    mod.db.session.commit()
+
+    remote = {
+        'id': 21774480, 'stage': 'in_work', 'phase': {'id': 3, 'phase_name': 'Принято.'},
+        'label': {'label_name': 'Не пройдено СТК'}, 'type_work': {'work_name': 'Заявка на ремонт'},
+        'serviced_object': {'additional_fields': [{'field_name': 'Бортовой номер', 'value': '162850'}]},
+    }
+    client = use_client(mod, monkeypatch)
+    fetch = mod.incontrol.IncontrolClient('test', 'test')
+    search_results = [
+        remote,
+        dict(remote, id=21774481, type_work={'work_name': 'Заявка на ремонт с линии'}),
+        dict(remote, id=21774482, phase={'phase_name': 'Назначено.'}),
+    ]
+    monkeypatch.setattr(fetch, '_get', Mock(return_value={'results': search_results, 'next': None}))
+    applications = fetch.fetch_open_applications(1069)
+    assert len(applications) == 1 and applications[0]['stk_return']
+    client.applications[1069] = applications
+
+    def fresh(remote_id, org):
+        client.no_orm_transaction()
+        assert (remote_id, org) == (21774480, 1069)
+        return dict(remote, phase={'phase_name': fresh_phase})
+    monkeypatch.setattr(client, 'get_task_by_id', fresh)
+
+    result = mod.create_tasks_from_incontrol()
+    should_reopen = link_source != 'unlinked' and fresh_phase == 'Принято.'
+    assert result['reopened'] == int(should_reopen)
+    assert result['created'] == 0
+    task = mod.db.session.get(mod.Task, task_id)
+    assert mod.Task.query.count() == 1
+    assert task.completed_work == previous_works
+    if should_reopen:
+        assert (task.status, task.tag, task.incontrol_task_id) == ('in_repair', 'waiting', 21774480)
+        assert task.completed_at is None and task.author_closed is None
+        assert mod.db.session.get(run_model, 'prior-run') is None
+        assert mod.create_tasks_from_incontrol()['reopened'] == 0
+    else:
+        assert task.status == 'completed'
+
+
 def test_manual_task_during_fetch_blocks_duplicate_incontrol_row(sync, monkeypatch):
     mod = sync
     add_car(mod)

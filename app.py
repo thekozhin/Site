@@ -976,6 +976,49 @@ def _incontrol_board_key(value):
     return board[:-2] if board.endswith('.0') else board
 
 
+def _stk_reopen_candidates(applications):
+    run_model = incontrol_rejections.model
+    closed = db.session.query(Task.id, Task.board_number, Task.park, Task.completed_at)
+    closed = closed.filter(Task.status == 'completed', Task.reject.is_not(True))
+    matches = {}
+    for remote_ids in _incontrol_chunks(applications):
+        direct = closed.add_columns(Task.incontrol_task_id).filter(Task.incontrol_task_id.in_(remote_ids))
+        historical = closed.add_columns(run_model.remote_id).join(run_model, run_model.task_id == Task.id).filter(
+            Task.incontrol_task_id.is_(None), run_model.remote_id.in_(remote_ids), run_model.state == 'consumed',
+        )
+        for task_id, board, park, completed_at, remote_id in (*direct.all(), *historical.all()):
+            info = applications[remote_id]
+            if (_incontrol_board_key(board) == _incontrol_board_key(info['board'])
+                    and park == incontrol.org_to_park(info['org_id'])):
+                matches.setdefault(remote_id, set()).add((task_id, completed_at))
+    return {remote_id: next(iter(rows)) for remote_id, rows in matches.items() if len(rows) == 1}
+
+
+def _reopen_incontrol_stk_task(task_id, completed_at, remote_id):
+    task = Task.query.filter_by(id=task_id).populate_existing().with_for_update().first()
+    if (task is None or task.status != 'completed' or task.completed_at != completed_at
+            or task.reject or task.incontrol_task_id not in (None, remote_id)):
+        return False
+    run_model = incontrol_rejections.model
+    run = run_model.query.filter_by(task_id=task_id).with_for_update().first()
+    if run and (run.state != 'consumed' or run.remote_id not in (None, remote_id)):
+        return False
+    if task.incontrol_task_id is None and (run is None or run.remote_id != remote_id):
+        return False
+    if run:
+        db.session.delete(run)
+    completion_checks.model.query.filter_by(task_id=task_id).delete(synchronize_session=False)
+    task.incontrol_task_id = remote_id
+    task.status = 'in_repair'
+    task.tag = 'waiting'
+    task.completed_at = None
+    task.author_closed = None
+    task.reject = False
+    task.yandex_reply_lookup = False
+    db.session.commit()
+    return True
+
+
 def create_tasks_from_incontrol():
     """Импорт: сетевой обход, короткий отбор, затем сеть и короткая запись."""
     if not INCONTROL_ENABLED:
@@ -983,7 +1026,7 @@ def create_tasks_from_incontrol():
 
     started = _time.monotonic()
     fetch_seconds = write_seconds = 0.0
-    created = linked = skipped = errors = 0
+    created = linked = reopened = skipped = errors = 0
     client = None
     import_parks = {'14 парк', '1 парк', 'Красная Пахра', '18 парк'}
     import_orgs = [org for org, park in incontrol.ORG_TO_PARK.items() if park in import_parks]
@@ -1006,15 +1049,20 @@ def create_tasks_from_incontrol():
             fetch_seconds += _time.monotonic() - fetch_started
 
         by_id = {}
+        stk_returns = {}
         for info in applications:
             if info.get('work_name') == 'Заявка на сервисное обслуживание':
                 continue
             if info.get('task_id'):
-                by_id.setdefault(info['task_id'], info)
+                if info.get('stk_return'):
+                    stk_returns.setdefault(info['task_id'], info)
+                else:
+                    by_id.setdefault(info['task_id'], info)
 
         # Уже известные id исключаем пакетно, вместо SQL-запроса на каждую
         # старую заявку в полной выдаче InControl.
         select_started = _time.monotonic()
+        stk_candidates = _stk_reopen_candidates(stk_returns)
         existing_ids = set()
         for chunk in _incontrol_chunks(by_id):
             existing_ids.update(row[0] for row in db.session.query(Task.incontrol_task_id).filter(
@@ -1041,6 +1089,38 @@ def create_tasks_from_incontrol():
         db.session.remove()
         write_seconds += _time.monotonic() - select_started
 
+        for remote_id, (task_id, completed_at) in stk_candidates.items():
+            info = stk_returns[remote_id]
+            fetch_started = _time.monotonic()
+            try:
+                fresh = client.get_task_by_id(remote_id, info['org_id'])
+                if not fresh or fresh.get('stage') in ('denied', 'completed'):
+                    continue
+                if _incontrol_board_key(incontrol.board_of(fresh)) != _incontrol_board_key(info['board']):
+                    continue
+                if not incontrol.is_stk_return(
+                    ((fresh.get('type_work') or {}).get('work_name') or '').strip(),
+                    (fresh.get('phase') or {}).get('phase_name'),
+                    ((fresh.get('label') or {}).get('label_name') or '').strip(),
+                ):
+                    continue
+            except Exception:
+                errors += 1
+                application.logger.exception('incontrol24: не удалось подтвердить возврат СТК по заявке %s', remote_id)
+                continue
+            finally:
+                fetch_seconds += _time.monotonic() - fetch_started
+
+            write_started = _time.monotonic()
+            try:
+                if _reopen_incontrol_stk_task(task_id, completed_at, remote_id):
+                    reopened += 1
+                    application.logger.info('incontrol24: возврат СТК, заявка %s, task=%s, борт=%s, парк=%s',
+                                            remote_id, task_id, info['board'], incontrol.org_to_park(info['org_id']))
+            finally:
+                db.session.remove()
+                write_seconds += _time.monotonic() - write_started
+
         for board, info in candidates:
             # Предыдущая запись полностью завершена, соединение возвращено
             # в пул до любого обращения к внешнему сервису.
@@ -1052,7 +1132,7 @@ def create_tasks_from_incontrol():
                     continue
                 phase_id = (fresh.get('phase') or {}).get('id')
                 label = ((fresh.get('label') or {}).get('label_name') or '').strip()
-                if (phase_id is not None and phase_id not in OPEN_PHASES) or label in ('Не пройдено СТК', 'Неисправности не устранены'):
+                if (phase_id is not None and phase_id not in OPEN_PHASES) or label in incontrol.IGNORED_LABELS:
                     skipped += 1
                     continue
                 work_name = ((fresh.get('type_work') or {}).get('work_name') or info.get('work_name') or '').strip()
@@ -1127,21 +1207,21 @@ def create_tasks_from_incontrol():
                 db.session.remove()
                 write_seconds += _time.monotonic() - write_started
 
-        return {'status': 'ok', 'created': created, 'linked': linked, 'skipped': skipped, 'errors': errors}
+        return {'status': 'ok', 'created': created, 'linked': linked, 'reopened': reopened, 'skipped': skipped, 'errors': errors}
     except Exception as error:
         db.session.rollback()
         application.logger.exception('incontrol24: импорт прерван')
         return {'status': 'error', 'message': str(error), 'created': created, 'linked': linked,
-                'skipped': skipped, 'errors': errors + 1}
+                'reopened': reopened, 'skipped': skipped, 'errors': errors + 1}
     finally:
         db.session.remove()
         client_session = getattr(client, 'session', None)
         if client_session is not None:
             client_session.close()
         application.logger.info(
-            'INCONTROL_SYNC job=import total_ms=%.1f fetch_ms=%.1f db_ms=%.1f created=%s linked=%s skipped=%s errors=%s',
+            'INCONTROL_SYNC job=import total_ms=%.1f fetch_ms=%.1f db_ms=%.1f created=%s linked=%s reopened=%s skipped=%s errors=%s',
             (_time.monotonic() - started) * 1000, fetch_seconds * 1000,
-            write_seconds * 1000, created, linked, skipped, errors,
+            write_seconds * 1000, created, linked, reopened, skipped, errors,
         )
 
 

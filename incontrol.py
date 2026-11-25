@@ -26,6 +26,9 @@ ROLE_ID = 143
 # Открытые этапы: «Новое.», «Назначено.», «Принято.» (точка — часть названия).
 OPEN_PHASES = (1, 2, 3)
 
+STK_FAILED_LABEL = 'Не пройдено СТК'
+IGNORED_LABELS = (STK_FAILED_LABEL, 'Неисправности не устранены')
+
 BOARD_FIELD = 'Бортовой номер'
 
 # Task.park хранит внутренние коды парков ('1 парк', '14 парк'), а не названия.
@@ -57,6 +60,12 @@ PAGE_SIZE = 100
 # Предохранитель от бесконечной пагинации, если API перестанет отдавать next.
 # При 100 записях на странице это 20 000 задач - втрое больше нынешнего объёма.
 MAX_PAGES = 200
+
+
+def is_stk_return(work_name, phase_name, label_name):
+    return (work_name == 'Заявка на ремонт'
+            and str(phase_name or '').strip().rstrip('.').casefold() == 'принято'
+            and label_name == STK_FAILED_LABEL)
 
 
 def is_outside_incontrol(park):
@@ -343,13 +352,10 @@ class IncontrolClient:
                 if task.get('stage') in ('denied', 'completed'):
                     continue
 
-                # Метка "Не пройдено СТК" — полностью игнорируем
                 label_name = (
                         (task.get('label') or {}).get('label_name') or ''
                 ).strip()
 
-                if label_name in ('Не пройдено СТК', 'Неисправности не устранены'):
-                    continue
 
                 phase_name = (
                     (task.get('phase') or {}).get('phase_name')
@@ -361,6 +367,8 @@ class IncontrolClient:
 
                 # Нам нужны только эти типы
                 if work_name not in ALLOWED_WORK_NAMES:
+                    continue
+                if label_name in IGNORED_LABELS and not is_stk_return(work_name, phase_name, label_name):
                     continue
 
                 boards.setdefault(board, [])
@@ -420,8 +428,6 @@ class IncontrolClient:
                 label_name = (
                     (task.get('label') or {}).get('label_name') or ''
                 ).strip()
-                if label_name in ('Не пройдено СТК', 'Неисправности не устранены'):
-                    continue
 
                 work_name = (
                     (task.get('type_work') or {}).get('work_name') or ''
@@ -433,6 +439,10 @@ class IncontrolClient:
                     (task.get('phase') or {}).get('phase_name')
                 )
 
+                stk_return = is_stk_return(work_name, phase_name, label_name)
+                if label_name in IGNORED_LABELS and not stk_return:
+                    continue
+
                 applications.append({
                     'board': board,
                     'work_name': work_name,
@@ -441,6 +451,7 @@ class IncontrolClient:
                     'linked_ids': linked_task_ids(task),
                     'org_id': org_id,
                     'creation_date': task.get('creation_date'),
+                    'stk_return': stk_return,
                 })
 
             if not data.get('next'):
@@ -571,32 +582,21 @@ class IncontrolClient:
                     if board_of(task) != board:
                         continue
 
-                    # 1. Стадии "Отклонено" и "Выполнено" — полностью игнорируем
                     if task.get('stage') in ('denied', 'completed'):
                         continue
 
-                    # 2. "Не пройдено СТК" не учитываем
-                    label_name = (
-                            (task.get('label') or {}).get('label_name') or ''
-                    ).strip()
-
-                    if label_name in ('Не пройдено СТК', 'Неисправности не устранены'):
+                    label_name = ((task.get('label') or {}).get('label_name') or '').strip()
+                    phase_name = (task.get('phase') or {}).get('phase_name')
+                    work_name = ((task.get('type_work') or {}).get('work_name') or '').strip()
+                    if label_name in IGNORED_LABELS and not is_stk_return(work_name, phase_name, label_name):
                         continue
 
-                    # 3. Дополнительно проверяем фазу из ответа API.
-                    phase_name = (task.get('phase') or {}).get('phase_name')
                     if not isinstance(phase_name, str) or not phase_name:
                         raise IncontrolError('InControl не сообщил фазу заявки')
                     if phase_name not in OPEN_PHASE_NAMES:
                         continue
-
-                    # 4. Проверка типа работ
-                    work_name = (
-                            (task.get('type_work') or {}).get('work_name') or ''
-                    ).strip()
                     if not work_name:
                         raise IncontrolError('InControl не сообщил тип открытой заявки')
-
                     if work_name not in ALLOWED_WORK_NAMES:
                         continue
 
