@@ -23,6 +23,7 @@ from yandex_mail import (
     InvalidRequest,
     MailError,
     PermanentDeliveryError,
+    ReplyPassExpired,
     UncertainDelivery,
     YandexMailbox,
     build_reply,
@@ -34,6 +35,7 @@ from yandex_oauth import YandexMailOAuth
 
 # Для других парков добавьте пары «парк Сетранс — папка IMAP» в YANDEX_MAIL_FOLDERS.
 PILOT_FOLDERS = {'14 парк': INBOX}
+REPLY_PASS_SECONDS = 45
 RETRY_MINUTES = (1, 5, 15)
 SENT_STEPS = ('sent_copy', 'sent_mark')
 MAINTENANCE_LOOKBACK = timedelta(days=1)
@@ -678,7 +680,7 @@ class YandexRequests:
                                         item.board_number, item.task_id, exc)
         return len(items)
 
-    def _sync(self, *, apply, scheduled=False, replies_only=False, import_only=False):
+    def _sync(self, *, apply, scheduled=False, replies_only=False, import_only=False, deadline=None):
         logger = self.app.logger
         mode = 'по расписанию' if scheduled else ('импорт вручную' if apply else 'просмотр')
         started = monotonic()
@@ -693,6 +695,8 @@ class YandexRequests:
                 stage = 'OAuth'
             mailbox = self._mailbox(address, auth)
             stage = 'IMAP'
+            if deadline is not None:
+                mailbox.reply_deadline = deadline
             with mailbox as mail:
                 stage = 'очередь ответов'
                 if scheduled and not import_only:
@@ -704,6 +708,9 @@ class YandexRequests:
                 if scheduled:
                     start = self._import_start()
                 counts = self.import_requests(mail, address, folders, start, apply)
+        except ReplyPassExpired:
+            logger.info('yandex-mail: лимит времени очереди ответов, остаток обработаем следующим проходом')
+            return
         except Exception as exc:
             # Форматируем только сообщения, созданные в интеграции, и коды ошибок.
             # Ответы серверов и параметры SQL могут содержать данные письма.
@@ -723,13 +730,14 @@ class YandexRequests:
         try:
             if replies_only and not self._has_reply_work():
                 return
+            deadline = monotonic() + REPLY_PASS_SECONDS if replies_only else None
             try:
-                return self._sync(apply=True, scheduled=True, replies_only=replies_only, import_only=import_only)
+                return self._sync(apply=True, scheduled=True, replies_only=replies_only, import_only=import_only, deadline=deadline)
             except ImapConnectionError:
                 if not (import_only or replies_only):
                     raise
                 self.db.session.remove()
-                return self._sync(apply=True, scheduled=True, replies_only=replies_only, import_only=import_only)
+                return self._sync(apply=True, scheduled=True, replies_only=replies_only, import_only=import_only, deadline=deadline)
         except MailError as exc:
             self.db.session.rollback()
             return {'status': 'error', 'message': str(exc)}

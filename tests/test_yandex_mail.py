@@ -107,7 +107,7 @@ def test_fetch_failure_includes_batch_timing_and_safe_cause(mode, expected, monk
     mailbox = YandexMailbox(ADDRESS, 'mock-secret', 'Sent')
     mailbox.imap = Mock(untagged_responses={'BYE': [b'private-provider-message']} if mode == 'bye' else {})
     mailbox.imap.select.return_value = 'OK', [b'65']
-    ticks = Mock(side_effect=[1, 20, 26.5])
+    ticks = Mock(side_effect=[0, 0, 1, 20, 26.5])
     monkeypatch.setattr(yandex_mail, 'monotonic', ticks)
     uids = [str(uid).encode() for uid in range(1, 66)]
 
@@ -135,6 +135,19 @@ def test_fetch_failure_includes_batch_timing_and_safe_cause(mode, expected, monk
     assert 'FETCH: заголовки отправленных ответов, писем в пакете=1' in details
     assert 'обработано до сбоя=64/65, команда=6.50 с' in details
     assert 'private-provider-message' not in details
+
+
+def test_reply_deadline_caps_imap_timeout_and_prevents_next_command(monkeypatch):
+    mailbox = YandexMailbox(ADDRESS, 'mock-secret')
+    mailbox.imap = Mock()
+    mailbox.imap.uid.return_value = 'OK', [b'']
+    mailbox.reply_deadline = 45
+    monkeypatch.setattr(yandex_mail, 'monotonic', Mock(side_effect=[42, 42, 43, 46, 46]))
+    assert mailbox._search('UNANSWERED') == []
+    mailbox.imap.sock.settimeout.assert_called_once_with(3)
+    with pytest.raises(yandex_mail.ReplyPassExpired):
+        mailbox._search('UNANSWERED')
+    assert mailbox.imap.uid.call_count == 1
 
 
 def test_sent_replies_are_checked_in_one_date_query_using_exact_headers():

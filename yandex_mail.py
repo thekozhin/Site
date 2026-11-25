@@ -45,6 +45,10 @@ class MailError(RuntimeError):
     pass
 
 
+class ReplyPassExpired(RuntimeError):
+    pass
+
+
 class ImapConnectionError(MailError):
     pass
 
@@ -288,6 +292,7 @@ class YandexMailbox:
         self.sent_parents_since = None
         self.smtp = None
         self.smtp_failed = False
+        self.reply_deadline = None
 
     def __enter__(self):
         self.selected = None
@@ -296,7 +301,7 @@ class YandexMailbox:
         method = 'XOAUTH2' if self.oauth_payload else 'LOGIN'
         try:
             self.imap = imaplib.IMAP4_SSL(host, IMAP_PORT,
-                                         ssl_context=ssl.create_default_context(cafile=ca_bundle()), timeout=10)
+                                         ssl_context=ssl.create_default_context(cafile=ca_bundle()), timeout=self._imap_timeout())
         except (imaplib.IMAP4.error, OSError) as exc:
             error_type = ImapConnectionError if isinstance(exc, (imaplib.IMAP4.abort, OSError)) else MailError
             raise error_type(f'IMAP {host}:{IMAP_PORT}, сбой подключения ({_connection_error_code(exc)}).') from None
@@ -314,9 +319,22 @@ class YandexMailbox:
     def __exit__(self, *_):
         self._close_smtp()
         with suppress(imaplib.IMAP4.error, OSError):
-            self.imap.logout()
+            if self.reply_deadline is not None:
+                self.imap.shutdown()
+            else:
+                self.imap.logout()
+
+    def _imap_timeout(self):
+        if self.reply_deadline is None:
+            return 10
+        remaining = self.reply_deadline - monotonic()
+        if remaining <= 0:
+            raise ReplyPassExpired
+        return min(10, remaining)
 
     def _imap_call(self, operation, method, *args, **kwargs):
+        if self.reply_deadline is not None:
+            self.imap.sock.settimeout(self._imap_timeout())
         try:
             return method(*args, **kwargs)
         except (imaplib.IMAP4.abort, OSError) as exc:
@@ -388,8 +406,18 @@ class YandexMailbox:
         return values
 
     def _search(self, *args):
-        values = self._uid('SEARCH', None, *args)
-        return values[0].split() if values and values[0] else []
+        started = monotonic()
+        criteria = ', '.join(term for term in ('SUBJECT', 'HEADER', 'SINCE', 'BEFORE', 'UNANSWERED') if term in args)
+        try:
+            values = self._uid('SEARCH', None, *args)
+        except (ImapConnectionError, ImapCommandError) as exc:
+            raise type(exc)(f'{exc} SEARCH: {criteria or "общий"}, команда={monotonic() - started:.2f} с.') from None
+        uids = values[0].split() if values and values[0] else []
+        elapsed = monotonic() - started
+        if elapsed >= 2:
+            self.logger.info('yandex-mail: медленный IMAP UID SEARCH, фильтры=%s, найдено=%s, команда=%.2f с',
+                             criteria or 'общий', len(uids), elapsed)
+        return uids
 
     def _fetch(self, uids, fields, *, purpose):
         batch_size = 64
