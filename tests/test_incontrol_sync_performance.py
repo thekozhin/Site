@@ -200,7 +200,7 @@ def test_import_network_never_holds_orm_connection_and_is_idempotent(sync, monke
 
 
 @pytest.mark.parametrize('link_source', ['task', 'previous_run', 'both', 'unlinked'])
-@pytest.mark.parametrize('fresh_phase', ['Принято.', 'Выполнено.'])
+@pytest.mark.parametrize('fresh_phase', ['Новое.', 'Назначено.', 'Принято.', 'Выполнено.'])
 @pytest.mark.parametrize('locally_rejected', [False, True])
 def test_stk_return_reopens_the_same_finished_repair(sync, monkeypatch, link_source, fresh_phase, locally_rejected):
     mod = sync
@@ -223,8 +223,9 @@ def test_stk_return_reopens_the_same_finished_repair(sync, monkeypatch, link_sou
     mod.db.session.commit()
 
     remote = {
-        'id': 21774480, 'stage': 'in_work', 'phase': {'id': 3, 'phase_name': 'Принято.'},
-        'label': {'label_name': 'Не пройдено СТК'}, 'type_work': {'work_name': 'Заявка на ремонт'},
+        'id': 21774480, 'stage': 'in_work', 'phase': {'phase_name': 'Принято.' if fresh_phase == 'Выполнено.' else fresh_phase},
+        'label': {'label_name': 'Не принято СТК' if fresh_phase == 'Новое.' else 'Не пройдено СТК'},
+        'type_work': {'work_name': 'Заявка на ремонт'},
         'serviced_object': {'additional_fields': [{'field_name': 'Бортовой номер', 'value': '162850'}]},
     }
     client = use_client(mod, monkeypatch)
@@ -232,7 +233,7 @@ def test_stk_return_reopens_the_same_finished_repair(sync, monkeypatch, link_sou
     search_results = [
         remote,
         dict(remote, id=21774481, type_work={'work_name': 'Заявка на ремонт с линии'}),
-        dict(remote, id=21774482, phase={'phase_name': 'Назначено.'}),
+        dict(remote, id=21774482, phase={'phase_name': 'Выполнено.'}),
     ]
     monkeypatch.setattr(fetch, '_get', Mock(return_value={'results': search_results, 'next': None}))
     applications = fetch.fetch_open_applications(1069)
@@ -246,7 +247,7 @@ def test_stk_return_reopens_the_same_finished_repair(sync, monkeypatch, link_sou
     monkeypatch.setattr(client, 'get_task_by_id', fresh)
 
     result = mod.create_tasks_from_incontrol()
-    should_reopen = link_source != 'unlinked' and fresh_phase == 'Принято.'
+    should_reopen = link_source != 'unlinked' and fresh_phase != 'Выполнено.'
     assert result['reopened'] == int(should_reopen)
     assert result['created'] == 0
     task = mod.db.session.get(mod.Task, task_id)

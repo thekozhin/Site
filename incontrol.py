@@ -26,8 +26,8 @@ ROLE_ID = 143
 # Открытые этапы: «Новое.», «Назначено.», «Принято.» (точка — часть названия).
 OPEN_PHASES = (1, 2, 3)
 
-STK_FAILED_LABEL = 'Не пройдено СТК'
-IGNORED_LABELS = (STK_FAILED_LABEL, 'Неисправности не устранены')
+STK_FAILED_LABELS = {'Не пройдено СТК', 'Не принято СТК'}
+IGNORED_LABELS = STK_FAILED_LABELS | {'Неисправности не устранены'}
 
 BOARD_FIELD = 'Бортовой номер'
 
@@ -64,8 +64,8 @@ MAX_PAGES = 200
 
 def is_stk_return(work_name, phase_name, label_name):
     return (work_name == 'Заявка на ремонт'
-            and str(phase_name or '').strip().rstrip('.').casefold() == 'принято'
-            and label_name == STK_FAILED_LABEL)
+            and str(phase_name or '').strip().rstrip('.').casefold() in {'новое', 'назначено', 'принято'}
+            and label_name in STK_FAILED_LABELS)
 
 
 def is_outside_incontrol(park):
