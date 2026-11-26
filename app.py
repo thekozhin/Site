@@ -675,6 +675,7 @@ class Task(db.Model):
     event_type = db.Column(db.String(50), nullable=True, index=True)
     print = db.Column(db.Boolean, default=False, index=True)
     incontrol_task_id = db.Column(db.BigInteger, nullable=True, index=True)
+    stk_returned = db.Column(db.Boolean, nullable=False, server_default='0')
     yandex_reply_lookup = db.Column(db.Boolean, nullable=False, server_default='0', index=True)
 
 
@@ -1011,6 +1012,7 @@ def _reopen_incontrol_stk_task(task_id, completed_at, remote_id):
     task.incontrol_task_id = remote_id
     task.status = 'in_repair'
     task.tag = 'in_work'
+    task.stk_returned = True
     task.completed_at = None
     task.author_closed = None
     task.reject = False
@@ -2814,6 +2816,7 @@ def complete_task(task_id):
 
         # Закрываем заявку
         task.status = 'completed'
+        task.stk_returned = False
         task.reject = (request.form.get('action') == 'reject')
         task.completed_work = completed_work
         task.author_closed = current_user.full_name

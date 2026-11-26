@@ -75,6 +75,9 @@
                                                  class="incontrol-badge">
                                         {% endif %}
 
+                                        {% if task.stk_returned %}
+                                            <span class="badge bg-danger" title="Возвращена в ремонт после проверки СТК" aria-label="Возвращена в ремонт после проверки СТК">СТК</span>
+                                        {% endif %}
                                         <a href="#" class="text-decoration-none comment-option"
                                            data-task-id="{{ task.id }}"
                                            title="Добавить/редактировать комментарий">

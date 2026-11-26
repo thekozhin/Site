@@ -256,11 +256,11 @@ def test_stk_return_reopens_the_same_finished_repair(sync, monkeypatch, link_sou
     if should_reopen:
         assert (task.status, task.tag, task.incontrol_task_id) == ('in_repair', 'in_work', 21774480)
         assert task.completed_at is None and task.author_closed is None
-        assert not task.reject
+        assert not task.reject and task.stk_returned
         assert mod.db.session.get(run_model, 'prior-run') is None
         assert mod.create_tasks_from_incontrol()['reopened'] == 0
     else:
-        assert task.status == 'completed'
+        assert task.status == 'completed' and not task.stk_returned
 
 
 def test_manual_task_during_fetch_blocks_duplicate_incontrol_row(sync, monkeypatch):
