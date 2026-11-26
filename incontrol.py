@@ -27,7 +27,8 @@ ROLE_ID = 143
 OPEN_PHASES = (1, 2, 3)
 
 STK_FAILED_LABELS = {'Не пройдено СТК', 'Не принято СТК'}
-IGNORED_LABELS = STK_FAILED_LABELS | {'Неисправности не устранены'}
+UNRESOLVED_REPAIR_LABEL = 'Неисправности не устранены'
+IGNORED_LABELS = STK_FAILED_LABELS | {UNRESOLVED_REPAIR_LABEL}
 
 BOARD_FIELD = 'Бортовой номер'
 
@@ -62,10 +63,14 @@ PAGE_SIZE = 100
 MAX_PAGES = 200
 
 
-def is_stk_return(work_name, phase_name, label_name):
-    return (work_name == 'Заявка на ремонт'
-            and str(phase_name or '').strip().rstrip('.').casefold() in {'новое', 'назначено', 'принято'}
-            and label_name in STK_FAILED_LABELS)
+def repair_return_reason(work_name, phase_name, label_name):
+    phase = str(phase_name or '').strip().rstrip('.').casefold()
+    if work_name == 'Заявка на ремонт' and phase in {'новое', 'назначено', 'принято'}:
+        if label_name in STK_FAILED_LABELS:
+            return 'stk'
+        if label_name == UNRESOLVED_REPAIR_LABEL:
+            return 'unresolved'
+    return None
 
 
 def is_outside_incontrol(park):
@@ -368,7 +373,7 @@ class IncontrolClient:
                 # Нам нужны только эти типы
                 if work_name not in ALLOWED_WORK_NAMES:
                     continue
-                if label_name in IGNORED_LABELS and not is_stk_return(work_name, phase_name, label_name):
+                if label_name in IGNORED_LABELS and not repair_return_reason(work_name, phase_name, label_name):
                     continue
 
                 boards.setdefault(board, [])
@@ -439,8 +444,8 @@ class IncontrolClient:
                     (task.get('phase') or {}).get('phase_name')
                 )
 
-                stk_return = is_stk_return(work_name, phase_name, label_name)
-                if label_name in IGNORED_LABELS and not stk_return:
+                return_reason = repair_return_reason(work_name, phase_name, label_name)
+                if label_name in IGNORED_LABELS and not return_reason:
                     continue
 
                 applications.append({
@@ -451,7 +456,7 @@ class IncontrolClient:
                     'linked_ids': linked_task_ids(task),
                     'org_id': org_id,
                     'creation_date': task.get('creation_date'),
-                    'stk_return': stk_return,
+                    'return_reason': return_reason,
                 })
 
             if not data.get('next'):
@@ -588,7 +593,7 @@ class IncontrolClient:
                     label_name = ((task.get('label') or {}).get('label_name') or '').strip()
                     phase_name = (task.get('phase') or {}).get('phase_name')
                     work_name = ((task.get('type_work') or {}).get('work_name') or '').strip()
-                    if label_name in IGNORED_LABELS and not is_stk_return(work_name, phase_name, label_name):
+                    if label_name in IGNORED_LABELS and not repair_return_reason(work_name, phase_name, label_name):
                         continue
 
                     if not isinstance(phase_name, str) or not phase_name:

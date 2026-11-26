@@ -1,0 +1,1 @@
+ALTER TABLE task ADD COLUMN unresolved_returned TINYINT(1) NOT NULL DEFAULT 0;

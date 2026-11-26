@@ -75,7 +75,11 @@
                                                  class="incontrol-badge">
                                         {% endif %}
 
-                                        {% if task.stk_returned %}
+                                        {% if task.unresolved_returned %}
+                                            <i class="bi bi-plus-lg text-danger" role="img"
+                                               title="Неисправности не устранены"
+                                               aria-label="Неисправности не устранены"></i>
+                                        {% elif task.stk_returned %}
                                             <span class="badge bg-danger" title="Возвращена в ремонт после проверки СТК" aria-label="Возвращена в ремонт после проверки СТК">СТК</span>
                                         {% endif %}
                                         <a href="#" class="text-decoration-none comment-option"

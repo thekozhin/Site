@@ -66,15 +66,16 @@ def run_check(completion, monkeypatch, result=None, error=None):
     return job, client.get(job['status_url']).get_json()
 
 
-def test_completion_clears_stk_return_badge(completion, monkeypatch):
+@pytest.mark.parametrize('badge', ['stk_returned', 'unresolved_returned'])
+def test_completion_clears_incontrol_return_badge(completion, monkeypatch, badge):
     mod, _, _ = completion
-    saved_task(completion).stk_returned = True
+    setattr(saved_task(completion), badge, True)
     mod.db.session.commit()
     job, _ = run_check(completion, monkeypatch)
 
     assert complete(completion, job['check_id']).status_code == 200
     task = saved_task(completion)
-    assert task.status == 'completed' and not task.stk_returned
+    assert task.status == 'completed' and not getattr(task, badge)
 
 
 def test_pending_check_keeps_task_open_and_does_not_start_twice(completion):

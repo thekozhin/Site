@@ -199,11 +199,16 @@ def test_import_network_never_holds_orm_connection_and_is_idempotent(sync, monke
     assert client.session.close.call_count == 2
 
 
+@pytest.mark.parametrize('reason', ['stk', 'unresolved'])
 @pytest.mark.parametrize('link_source', ['task', 'previous_run', 'both', 'unlinked'])
 @pytest.mark.parametrize('fresh_phase', ['Новое.', 'Назначено.', 'Принято.', 'Выполнено.'])
 @pytest.mark.parametrize('locally_rejected', [False, True])
-def test_stk_return_reopens_the_same_finished_repair(sync, monkeypatch, link_source, fresh_phase, locally_rejected):
+def test_incontrol_return_reopens_the_same_finished_repair(
+    sync, monkeypatch, reason, link_source, fresh_phase, locally_rejected,
+):
     mod = sync
+    monkeypatch.setenv('INCONTROL_RETURNS_ENABLED', '1')
+    monkeypatch.setenv('INCONTROL_RETURN_PARKS', '14 парк')
     previous_works = 'Заменили ремень генератора'
     now = mod.incontrol_now()
     task_id = add_task(mod, board='162850', incontrol_task_id=21774480 if link_source in ('task', 'both') else None)
@@ -222,9 +227,12 @@ def test_stk_return_reopens_the_same_finished_repair(sync, monkeypatch, link_sou
         ))
     mod.db.session.commit()
 
+    label = 'Не принято СТК' if fresh_phase == 'Новое.' else 'Не пройдено СТК'
+    if reason == 'unresolved':
+        label = 'Неисправности не устранены'
     remote = {
         'id': 21774480, 'stage': 'in_work', 'phase': {'phase_name': 'Принято.' if fresh_phase == 'Выполнено.' else fresh_phase},
-        'label': {'label_name': 'Не принято СТК' if fresh_phase == 'Новое.' else 'Не пройдено СТК'},
+        'label': {'label_name': label},
         'type_work': {'work_name': 'Заявка на ремонт'},
         'serviced_object': {'additional_fields': [{'field_name': 'Бортовой номер', 'value': '162850'}]},
     }
@@ -237,7 +245,7 @@ def test_stk_return_reopens_the_same_finished_repair(sync, monkeypatch, link_sou
     ]
     monkeypatch.setattr(fetch, '_get', Mock(return_value={'results': search_results, 'next': None}))
     applications = fetch.fetch_open_applications(1069)
-    assert len(applications) == 1 and applications[0]['stk_return']
+    assert len(applications) == 1 and applications[0]['return_reason'] == reason
     client.applications[1069] = applications
 
     def fresh(remote_id, org):
@@ -256,11 +264,34 @@ def test_stk_return_reopens_the_same_finished_repair(sync, monkeypatch, link_sou
     if should_reopen:
         assert (task.status, task.tag, task.incontrol_task_id) == ('in_repair', 'in_work', 21774480)
         assert task.completed_at is None and task.author_closed is None
-        assert not task.reject and task.stk_returned
+        assert not task.reject
+        assert task.stk_returned == (reason == 'stk')
+        assert task.unresolved_returned == (reason == 'unresolved')
         assert mod.db.session.get(run_model, 'prior-run') is None
         assert mod.create_tasks_from_incontrol()['reopened'] == 0
     else:
-        assert task.status == 'completed' and not task.stk_returned
+        assert task.status == 'completed' and not task.stk_returned and not task.unresolved_returned
+
+
+@pytest.mark.parametrize(('enabled', 'parks'), [('0', '14 парк'), ('1', '1 парк'), ('1', '')])
+def test_return_settings_skip_both_reasons_without_creating_duplicates(sync, monkeypatch, enabled, parks):
+    monkeypatch.setenv('INCONTROL_RETURNS_ENABLED', enabled)
+    monkeypatch.setenv('INCONTROL_RETURN_PARKS', parks)
+    add_car(sync)
+    add_car(sync, '164077')
+    add_task(sync, incontrol_task_id=123)
+    add_task(sync, board='164077', incontrol_task_id=124)
+    for task in sync.Task.query:
+        task.status = 'completed'
+    sync.db.session.commit()
+    client = use_client(sync, monkeypatch, applications={1069: [
+        incoming(return_reason='stk'),
+        incoming(124, '164077', return_reason='unresolved'),
+    ]})
+    result = sync.create_tasks_from_incontrol()
+    assert result['created'] == result['reopened'] == 0
+    assert client.details == []
+    assert {task.status for task in sync.Task.query} == {'completed'}
 
 
 def test_manual_task_during_fetch_blocks_duplicate_incontrol_row(sync, monkeypatch):

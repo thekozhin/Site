@@ -676,6 +676,7 @@ class Task(db.Model):
     print = db.Column(db.Boolean, default=False, index=True)
     incontrol_task_id = db.Column(db.BigInteger, nullable=True, index=True)
     stk_returned = db.Column(db.Boolean, nullable=False, server_default='0')
+    unresolved_returned = db.Column(db.Boolean, nullable=False, server_default='0')
     yandex_reply_lookup = db.Column(db.Boolean, nullable=False, server_default='0', index=True)
 
 
@@ -977,7 +978,7 @@ def _incontrol_board_key(value):
     return board[:-2] if board.endswith('.0') else board
 
 
-def _stk_reopen_candidates(applications):
+def _incontrol_return_candidates(applications):
     run_model = incontrol_rejections.model
     closed = db.session.query(Task.id, Task.board_number, Task.park, Task.completed_at)
     closed = closed.filter(Task.status == 'completed')
@@ -995,10 +996,11 @@ def _stk_reopen_candidates(applications):
     return {remote_id: next(iter(rows)) for remote_id, rows in matches.items() if len(rows) == 1}
 
 
-def _reopen_incontrol_stk_task(task_id, completed_at, remote_id):
+def _reopen_incontrol_repair(task_id, completed_at, remote_id, board, park, reason):
     task = Task.query.filter_by(id=task_id).populate_existing().with_for_update().first()
     if (task is None or task.status != 'completed' or task.completed_at != completed_at
-            or task.incontrol_task_id not in (None, remote_id)):
+            or task.incontrol_task_id not in (None, remote_id) or task.park != park
+            or _incontrol_board_key(task.board_number) != _incontrol_board_key(board)):
         return False
     run_model = incontrol_rejections.model
     run = run_model.query.filter_by(task_id=task_id).with_for_update().first()
@@ -1012,7 +1014,8 @@ def _reopen_incontrol_stk_task(task_id, completed_at, remote_id):
     task.incontrol_task_id = remote_id
     task.status = 'in_repair'
     task.tag = 'in_work'
-    task.stk_returned = True
+    task.stk_returned = reason == 'stk'
+    task.unresolved_returned = reason == 'unresolved'
     task.completed_at = None
     task.author_closed = None
     task.reject = False
@@ -1032,6 +1035,10 @@ def create_tasks_from_incontrol():
     client = None
     import_parks = {'14 парк', '1 парк', 'Красная Пахра', '18 парк'}
     import_orgs = [org for org, park in incontrol.ORG_TO_PARK.items() if park in import_parks]
+    return_parks = set()
+    if os.getenv('INCONTROL_RETURNS_ENABLED', '1') == '1':
+        configured_parks = os.getenv('INCONTROL_RETURN_PARKS', ','.join(sorted(import_parks)))
+        return_parks = {name.strip() for name in configured_parks.split(',')} & import_parks
     application.logger.info('incontrol24: запуск проверки новых заявок из InControl...')
     # Функция вызывается в отдельном app_context планировщика.
     db.session.remove()
@@ -1051,20 +1058,21 @@ def create_tasks_from_incontrol():
             fetch_seconds += _time.monotonic() - fetch_started
 
         by_id = {}
-        stk_returns = {}
+        returned_repairs = {}
         for info in applications:
             if info.get('work_name') == 'Заявка на сервисное обслуживание':
                 continue
             if info.get('task_id'):
-                if info.get('stk_return'):
-                    stk_returns.setdefault(info['task_id'], info)
+                if info.get('return_reason'):
+                    if incontrol.org_to_park(info.get('org_id')) in return_parks:
+                        returned_repairs.setdefault(info['task_id'], info)
                 else:
                     by_id.setdefault(info['task_id'], info)
 
         # Уже известные id исключаем пакетно, вместо SQL-запроса на каждую
         # старую заявку в полной выдаче InControl.
         select_started = _time.monotonic()
-        stk_candidates = _stk_reopen_candidates(stk_returns)
+        return_candidates = _incontrol_return_candidates(returned_repairs)
         existing_ids = set()
         for chunk in _incontrol_chunks(by_id):
             existing_ids.update(row[0] for row in db.session.query(Task.incontrol_task_id).filter(
@@ -1091,8 +1099,9 @@ def create_tasks_from_incontrol():
         db.session.remove()
         write_seconds += _time.monotonic() - select_started
 
-        for remote_id, (task_id, completed_at) in stk_candidates.items():
-            info = stk_returns[remote_id]
+        for remote_id, (task_id, completed_at) in return_candidates.items():
+            info = returned_repairs[remote_id]
+            park = incontrol.org_to_park(info['org_id'])
             fetch_started = _time.monotonic()
             try:
                 fresh = client.get_task_by_id(remote_id, info['org_id'])
@@ -1100,25 +1109,27 @@ def create_tasks_from_incontrol():
                     continue
                 if _incontrol_board_key(incontrol.board_of(fresh)) != _incontrol_board_key(info['board']):
                     continue
-                if not incontrol.is_stk_return(
+                reason = incontrol.repair_return_reason(
                     ((fresh.get('type_work') or {}).get('work_name') or '').strip(),
                     (fresh.get('phase') or {}).get('phase_name'),
                     ((fresh.get('label') or {}).get('label_name') or '').strip(),
-                ):
+                )
+                if not reason:
                     continue
             except Exception:
                 errors += 1
-                application.logger.exception('incontrol24: не удалось подтвердить возврат СТК по заявке %s', remote_id)
+                application.logger.exception('incontrol24: не удалось подтвердить возврат по заявке %s', remote_id)
                 continue
             finally:
                 fetch_seconds += _time.monotonic() - fetch_started
 
             write_started = _time.monotonic()
             try:
-                if _reopen_incontrol_stk_task(task_id, completed_at, remote_id):
+                if _reopen_incontrol_repair(task_id, completed_at, remote_id, info['board'], park, reason):
                     reopened += 1
-                    application.logger.info('incontrol24: возврат СТК, заявка %s, task=%s, борт=%s, парк=%s',
-                                            remote_id, task_id, info['board'], incontrol.org_to_park(info['org_id']))
+                    return_label = 'СТК' if reason == 'stk' else '«Неисправности не устранены»'
+                    application.logger.info('incontrol24: возврат %s, заявка %s, task=%s, борт=%s, парк=%s',
+                                            return_label, remote_id, task_id, info['board'], park)
             finally:
                 db.session.remove()
                 write_seconds += _time.monotonic() - write_started
@@ -2817,6 +2828,7 @@ def complete_task(task_id):
         # Закрываем заявку
         task.status = 'completed'
         task.stk_returned = False
+        task.unresolved_returned = False
         task.reject = (request.form.get('action') == 'reject')
         task.completed_work = completed_work
         task.author_closed = current_user.full_name
