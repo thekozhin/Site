@@ -1010,7 +1010,7 @@ def _reopen_incontrol_stk_task(task_id, completed_at, remote_id):
     completion_checks.model.query.filter_by(task_id=task_id).delete(synchronize_session=False)
     task.incontrol_task_id = remote_id
     task.status = 'in_repair'
-    task.tag = 'waiting'
+    task.tag = 'in_work'
     task.completed_at = None
     task.author_closed = None
     task.reject = False

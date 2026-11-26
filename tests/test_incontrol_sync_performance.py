@@ -253,7 +253,7 @@ def test_stk_return_reopens_the_same_finished_repair(sync, monkeypatch, link_sou
     assert mod.Task.query.count() == 1
     assert task.completed_work == previous_works
     if should_reopen:
-        assert (task.status, task.tag, task.incontrol_task_id) == ('in_repair', 'waiting', 21774480)
+        assert (task.status, task.tag, task.incontrol_task_id) == ('in_repair', 'in_work', 21774480)
         assert task.completed_at is None and task.author_closed is None
         assert not task.reject
         assert mod.db.session.get(run_model, 'prior-run') is None
