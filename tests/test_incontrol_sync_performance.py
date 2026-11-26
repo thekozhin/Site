@@ -201,13 +201,15 @@ def test_import_network_never_holds_orm_connection_and_is_idempotent(sync, monke
 
 @pytest.mark.parametrize('link_source', ['task', 'previous_run', 'both', 'unlinked'])
 @pytest.mark.parametrize('fresh_phase', ['Принято.', 'Выполнено.'])
-def test_stk_return_reopens_the_same_finished_repair(sync, monkeypatch, link_source, fresh_phase):
+@pytest.mark.parametrize('locally_rejected', [False, True])
+def test_stk_return_reopens_the_same_finished_repair(sync, monkeypatch, link_source, fresh_phase, locally_rejected):
     mod = sync
     previous_works = 'Заменили ремень генератора'
     now = mod.incontrol_now()
     task_id = add_task(mod, board='162850', incontrol_task_id=21774480 if link_source in ('task', 'both') else None)
     task = mod.db.session.get(mod.Task, task_id)
     task.status, task.tag = 'completed', 'success'
+    task.reject = locally_rejected
     task.completed_at, task.completed_work, task.author_closed = now, previous_works, 'Мастер'
     user = mod.User(username='stk-test', password='unused', full_name='Тест')
     mod.db.session.add(user)
@@ -253,6 +255,7 @@ def test_stk_return_reopens_the_same_finished_repair(sync, monkeypatch, link_sou
     if should_reopen:
         assert (task.status, task.tag, task.incontrol_task_id) == ('in_repair', 'waiting', 21774480)
         assert task.completed_at is None and task.author_closed is None
+        assert not task.reject
         assert mod.db.session.get(run_model, 'prior-run') is None
         assert mod.create_tasks_from_incontrol()['reopened'] == 0
     else:

@@ -979,7 +979,7 @@ def _incontrol_board_key(value):
 def _stk_reopen_candidates(applications):
     run_model = incontrol_rejections.model
     closed = db.session.query(Task.id, Task.board_number, Task.park, Task.completed_at)
-    closed = closed.filter(Task.status == 'completed', Task.reject.is_not(True))
+    closed = closed.filter(Task.status == 'completed')
     matches = {}
     for remote_ids in _incontrol_chunks(applications):
         direct = closed.add_columns(Task.incontrol_task_id).filter(Task.incontrol_task_id.in_(remote_ids))
@@ -997,7 +997,7 @@ def _stk_reopen_candidates(applications):
 def _reopen_incontrol_stk_task(task_id, completed_at, remote_id):
     task = Task.query.filter_by(id=task_id).populate_existing().with_for_update().first()
     if (task is None or task.status != 'completed' or task.completed_at != completed_at
-            or task.reject or task.incontrol_task_id not in (None, remote_id)):
+            or task.incontrol_task_id not in (None, remote_id)):
         return False
     run_model = incontrol_rejections.model
     run = run_model.query.filter_by(task_id=task_id).with_for_update().first()
