@@ -540,6 +540,35 @@ def test_new_mail_with_board_in_subject_replaces_description_and_gets_its_own_re
     assert requests.deliver_replies(mail, ADDRESS, task_id=task_id) == 0
 
 
+def test_existing_link_gets_fresh_uid_without_downloading_again(app_ctx):
+    mod = app_ctx
+    requests = mod.yandex_requests
+    board = '164054'
+    received = datetime.now(MOSCOW)
+    mod.db.session.add(mod.Car(bort=board, location=PARK))
+    mod.db.session.commit()
+    mail = fake_mail(received, {ORIGINAL_ID: mail_message(ORIGINAL_ID, 'УА160226352', board)})
+    mail.unanswered.return_value = [[OriginalMail(b'37', ORIGINAL_ID, received, board)]]
+    args = mail, ADDRESS, {PARK: 'INBOX'}, None
+    assert requests.import_requests(*args, apply=True)['created'] == 1
+    row = requests.model.query.one()
+    assert row.original_uid_hint is None
+    task = mod.db.session.get(mod.Task, row.task_id)
+    task.status = 'completed'
+    task.completed_work = WORK
+    requests.queue_reply(task)
+    mod.db.session.commit()
+
+    mail.download.reset_mock()
+    mail.unanswered.return_value = [[OriginalMail(b'58', ORIGINAL_ID, received, board, 500)]]
+    assert requests.import_requests(*args, apply=True)['duplicate'] == 1
+    mail.download.assert_not_called()
+    row = requests.model.query.one()
+    assert row.original_uid_hint == (500, 58)
+    assert row.reply_state == 'pending' and row.reply_text == WORK
+    assert mod.Task.query.count() == 1
+
+
 def test_same_ticket_newer_workbook_replaces_description_once(app_ctx, caplog):
     mod = app_ctx
     requests = mod.yandex_requests

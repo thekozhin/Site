@@ -451,6 +451,23 @@ class YandexRequests:
             self.db.session.remove()
         return registered
 
+    def _refresh_original_uids(self, candidates, known, mailbox, park, folder):
+        hints = {key: candidates[key] for key, in known if candidates[key].uid_validity is not None}
+        if not hints:
+            return
+        link = self.model
+        rows = link.query.filter(
+            link.message_key.in_(hints), link.mailbox == mailbox, link.park == park, link.folder == folder,
+        ).all()
+        for row in rows:
+            original = hints[row.message_key]
+            if original.message_id == row.message_id and original.board_number in (None, row.board_number):
+                uid = int(original.uid)
+                if (row.imap_uid, row.imap_uid_validity) != (uid, original.uid_validity):
+                    row.imap_uid, row.imap_uid_validity = uid, original.uid_validity
+        if self.db.session.dirty:
+            self.db.session.commit()
+
     def import_requests(self, mail, address, folders, start, apply):
         counts = dict(created=0, linked=0, updated=0, duplicate=0, active_board=0, answered=0, invalid=0, unknown_board=0, preview=0)
         sent_from = None
@@ -463,6 +480,7 @@ class YandexRequests:
                     originals = self.db.session.query(link.message_key).filter(link.message_key.in_(candidates))
                     revisions = self.db.session.query(link.revision_message_key).filter(link.revision_message_key.in_(candidates))
                     known = originals.union(revisions).all()
+                    self._refresh_original_uids(candidates, known, address, park, folder)
                     self.db.session.remove()
                     for key, in known:
                         candidates.pop(key)
