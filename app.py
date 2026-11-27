@@ -2706,6 +2706,11 @@ def complete_task(task_id):
         completed_at = datetime.now(tz)
 
         if work_in and created_at and not is_reject:
+            # Форма передаёт только часы и минуты. В минуту подачи сохраняем точное время создания.
+            if work_in == created_at.replace(second=0, microsecond=0) and work_in_str in (
+                work_in.strftime('%Y-%m-%dT%H:%M'), work_in.strftime('%Y-%m-%d %H:%M'),
+            ):
+                work_in = created_at
 
             # 1. Не раньше создания заявки
             if work_in < created_at:

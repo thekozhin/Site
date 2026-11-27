@@ -329,9 +329,9 @@
                         alert('Введите 4 цифры времени в формате ЧЧ:ММ!');
                         return;
                     }
-                    if (createdAtString && new Date(workInValueString) < new Date(createdAtString)) {
-                        updateWorkInInput();
-                        completionCheck.submit();
+                    if (createdAtString && workInValueString < createdAtString) {
+                        completionCheck.showFlash('Дата и время начала работ не могут быть раньше даты и времени подачи заявки.');
+                        workInTimeInput.focus();
                         return;
                     }
                 }

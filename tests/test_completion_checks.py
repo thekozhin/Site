@@ -78,6 +78,33 @@ def test_completion_clears_incontrol_return_badge(completion, monkeypatch, badge
     assert task.status == 'completed' and not getattr(task, badge)
 
 
+@pytest.mark.parametrize(('offset', 'include_seconds', 'allowed'), [
+    (timedelta(0), False, True),
+    (timedelta(minutes=-1), False, False),
+    (timedelta(0), True, False),
+])
+def test_completion_compares_work_start_at_the_precision_entered(
+    completion, monkeypatch, offset, include_seconds, allowed,
+):
+    mod, _, _ = completion
+    task = saved_task(completion)
+    created_minute = task.created_at.replace(second=0, microsecond=0)
+    actual_created = created_minute + timedelta(seconds=17)
+    task.created_at = actual_created
+    mod.db.session.commit()
+    job, _ = run_check(completion, monkeypatch)
+    work_in = (created_minute + offset).isoformat(timespec='seconds' if include_seconds else 'minutes')
+
+    response = complete(completion, job['check_id'], work_in=work_in)
+    task = saved_task(completion)
+    if allowed:
+        assert task.status == 'completed'
+        assert task.work_in == actual_created
+    else:
+        assert 'Дата и время начала работ не могут быть раньше' in response.text
+        assert task.status == 'in_repair'
+
+
 def test_pending_check_keeps_task_open_and_does_not_start_twice(completion):
     job = start(completion)
     assert start(completion)['check_id'] == job['check_id']
