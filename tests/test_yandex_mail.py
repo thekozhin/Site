@@ -356,6 +356,42 @@ def test_inbox_search_keeps_only_subjects_with_one_board():
     assert 'BODY.PEEK[HEADER.FIELDS (MESSAGE-ID SUBJECT)]' in mailbox.imap.uid.call_args.args[-1]
 
 
+def test_original_uid_avoids_search_and_is_reused_for_marking():
+    mail = YandexMailbox(ADDRESS, 'mock-secret')
+    mail.imap = Mock()
+    mail.imap.select.return_value = 'OK', [b'1']
+    mail.imap.response.return_value = 'UIDVALIDITY', [b'500']
+    original = (b'1 (UID 37 FLAGS ()', f'Message-ID: {ORIGINAL_ID}\r\n\r\n'.encode())
+    mail.imap.uid.side_effect = [('OK', [original]), ('OK', [original]), ('OK', [None])]
+    received = datetime(2026, 11, 27, 7, 45)
+
+    assert mail.original_answered('INBOX', ORIGINAL_ID, received, uid_hint=(500, 37)) is False
+    mail.mark_answered('INBOX', ORIGINAL_ID, received)
+
+    commands = [call.args[:2] for call in mail.imap.uid.call_args_list]
+    assert commands == [('FETCH', b'37'), ('FETCH', b'37'), ('STORE', b'37')]
+
+
+@pytest.mark.parametrize('hint_validity', [400, 500])
+def test_original_uid_falls_back_when_folder_or_message_does_not_match(hint_validity):
+    mail = YandexMailbox(ADDRESS, 'mock-secret')
+    mail.imap = Mock()
+    mail.imap.select.return_value = 'OK', [b'2']
+    mail.imap.response.return_value = 'UIDVALIDITY', [b'500']
+    responses = [
+        ('OK', [b'73']),
+        ('OK', [(b'1 (UID 73 FLAGS (\\Answered)', f'Message-ID: {ORIGINAL_ID}\r\n\r\n'.encode())]),
+    ]
+    if hint_validity == 500:
+        responses.insert(0, ('OK', [(b'1 (UID 37 FLAGS ()', b'Message-ID: <other@example.org>\r\n\r\n')]))
+    mail.imap.uid.side_effect = responses
+
+    assert mail.original_answered('INBOX', ORIGINAL_ID, datetime(2026, 11, 27), uid_hint=(hint_validity, 37)) is True
+    commands = [call.args[:2] for call in mail.imap.uid.call_args_list]
+    assert commands[-2:] == [('SEARCH', None), ('FETCH', b'73')]
+    assert (('FETCH', b'37') in commands) == (hint_validity == 500)
+
+
 def test_original_lookup_falls_back_to_dates_and_compares_message_id():
     mail = YandexMailbox(ADDRESS, 'mock-secret')
     mail.imap = Mock()
@@ -570,13 +606,15 @@ def test_inbox_links_matching_manual_task_and_keeps_its_author(completion, monke
 
     received = datetime.now(MOSCOW) - timedelta(minutes=90)
     mail = fake_mail(received, {ORIGINAL_ID: mail_message(ORIGINAL_ID, 'УА160222071')})
-    mail.unanswered.return_value = [[OriginalMail(b'1', ORIGINAL_ID, received, manual.board_number)]]
+    mail.unanswered.return_value = [[OriginalMail(b'1', ORIGINAL_ID, received, manual.board_number, 500)]]
     args = mail, ADDRESS, {PARK: 'INBOX'}, None
     assert requests.import_requests(*args, apply=True)['linked'] == 1
     assert requests.import_requests(*args, apply=True)['duplicate'] == 1
     assert mod.Task.query.count() == 1
     assert saved_task(completion).author_open == 'Приёмщик'
-    assert requests.model.query.filter_by(task_id=task_id).one_or_none().received_at == received.replace(tzinfo=None)
+    link = requests.model.query.filter_by(task_id=task_id).one()
+    assert link.received_at == received.replace(tzinfo=None)
+    assert (link.imap_uid, link.imap_uid_validity) == (1, 500)
     assert 'УА160222071' in client.get(f'/complete_task/{task_id}').text
 
     check, _ = run_check(completion, monkeypatch)
@@ -817,7 +855,7 @@ def test_completion_keeps_incontrol_check_and_sends_exact_reply(completion, monk
         assert reply.get_content().rstrip('\n') == WORK
         copy = mail.save_sent_copy.call_args.args[0]
         assert copy['Message-ID'] == reply['Message-ID'] and copy.get_content() == reply.get_content()
-        mail.mark_answered.assert_called_once_with('INBOX', ORIGINAL_ID, received.replace(tzinfo=None))
+        mail.mark_answered.assert_called_once_with('INBOX', ORIGINAL_ID, received.replace(tzinfo=None), uid_hint=None)
     elif delivery != 'sent_mark':
         mail.mark_answered.assert_not_called()
     if delivery == 'answered':
@@ -865,7 +903,7 @@ def test_scheduled_reply_check_preserves_in_flight_claim(app_ctx):
     assert requests.queue_reply(task)
     mod.db.session.commit()
 
-    def fail_while_another_worker_sends(*args):
+    def fail_while_another_worker_sends(*args, uid_hint=None):
         assert requests._claim_reply(requests.model.query.filter_by(task_id=task_id).one().message_key)
         raise MailError('Не удалось проверить письмо')
 

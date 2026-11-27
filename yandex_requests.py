@@ -79,6 +79,8 @@ class YandexRequests:
             recipient = db.Column(db.String(254), nullable=False)
             subject = db.Column(db.String(500), nullable=False)
             received_at = db.Column(db.DateTime, nullable=False)
+            imap_uid = db.Column(db.BigInteger)
+            imap_uid_validity = db.Column(db.BigInteger)
             revision_received_at = db.Column(db.DateTime)
             revision_message_key = db.Column(db.String(64), index=True)
             reply_state = db.Column(db.String(16), nullable=False, default='open')
@@ -88,6 +90,13 @@ class YandexRequests:
             reply_error = db.Column(db.String(255))
             reply_retry_count = db.Column(db.Integer, nullable=False, server_default='0')
             reply_next_at = db.Column(db.DateTime)
+
+            @property
+            def original_uid_hint(self):
+                if self.imap_uid_validity is not None and self.imap_uid is not None:
+                    return self.imap_uid_validity, self.imap_uid
+                return None
+
 
         self.model = MailRequest
         self._register_commands()
@@ -292,6 +301,7 @@ class YandexRequests:
                         ticket_number=ticket.ticket_number, board_number=task.board_number,
                         message_id=original.message_id, recipient=ticket.recipient, subject=ticket.subject,
                         received_at=original.received_at.astimezone(MOSCOW).replace(tzinfo=None),
+                        imap_uid=int(original.uid), imap_uid_validity=original.uid_validity,
                         reply_state='pending', reply_text=current.completed_work,
                     ))
                 elif (existing.message_key == key and existing.reply_state == 'open'
@@ -301,6 +311,8 @@ class YandexRequests:
                       and match_imported_repair([current], ticket.description)[0] is not None):
                     existing.task_id = current.id
                     existing.folder = folder
+                    existing.imap_uid = int(original.uid)
+                    existing.imap_uid_validity = original.uid_validity
                     existing.reply_state = 'pending'
                     existing.reply_text = current.completed_work
                 else:
@@ -391,6 +403,7 @@ class YandexRequests:
                 ticket_number=ticket.ticket_number, board_number=ticket.board_number,
                 message_id=original.message_id, recipient=ticket.recipient, subject=ticket.subject,
                 received_at=received_at,
+                imap_uid=int(original.uid), imap_uid_validity=original.uid_validity,
             ))
             self.db.session.commit()
             if result == 'created':
@@ -542,7 +555,7 @@ class YandexRequests:
                                     sent_at=link.reply_sent_at.replace(tzinfo=timezone.utc))
                 mail.save_sent_copy(reply)
             else:
-                mail.mark_answered(link.folder, link.message_id, link.received_at)
+                mail.mark_answered(link.folder, link.message_id, link.received_at, uid_hint=link.original_uid_hint)
         except (MailError, OSError) as exc:
             error = _error_summary(exc)
             stage = 'копия в отправленных' if state == 'sent_copy' else 'отметка на исходном письме'
@@ -590,7 +603,7 @@ class YandexRequests:
             logger.info('%s %s ответ в почту отправлен', link.park, board)
             self._recover_sent(mail, link.message_key, 'sent_mark')
             return
-        original_answered = mail.original_answered(link.folder, link.message_id, link.received_at)
+        original_answered = mail.original_answered(link.folder, link.message_id, link.received_at, uid_hint=link.original_uid_hint)
         if original_answered or mail.has_reply(link.message_id, link.received_at):
             self._set_reply_state(link.message_key, 'answered', expected_states=expected_states)
             logger.info('yandex-mail: борт=%s, task=%s, ответ уже есть', board, task_id)

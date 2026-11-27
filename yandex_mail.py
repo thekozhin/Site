@@ -75,6 +75,7 @@ class OriginalMail:
     message_id: str
     received_at: datetime
     board_number: str | None = None
+    uid_validity: int | None = None
 
 
 @dataclass(frozen=True)
@@ -289,6 +290,8 @@ class YandexMailbox:
         self.logger = logger if logger is not None else logging.getLogger(__name__)
         self.sent_folder = _imap_folder(sent_folder) if sent_folder else None
         self.selected = None
+        self.selected_uid_validity = None
+        self.original_uid_hints = {}
         self.sent_parents_since = None
         self.smtp = None
         self.smtp_failed = False
@@ -296,6 +299,8 @@ class YandexMailbox:
 
     def __enter__(self):
         self.selected = None
+        self.selected_uid_validity = None
+        self.original_uid_hints.clear()
         self.sent_parents_since = None
         host = OAUTH_IMAP_HOST if self.oauth_payload else IMAP_HOST
         method = 'XOAUTH2' if self.oauth_payload else 'LOGIN'
@@ -377,6 +382,10 @@ class YandexMailbox:
             status, _ = self._imap_call('EXAMINE' if readonly else 'SELECT', self.imap.select, wire_folder, readonly=readonly)
             if status != 'OK':
                 raise ImapCommandError('Папка Яндекс Почты не доступна по IMAP.')
+            response = self.imap.response('UIDVALIDITY')
+            values = response[1] if isinstance(response, tuple) else None
+            value = values[-1] if values else None
+            self.selected_uid_validity = int(value) if isinstance(value, bytes) and value.isdigit() else None
             self.selected = wire_folder, readonly
 
     def _sent_folder(self):
@@ -480,7 +489,7 @@ class YandexMailbox:
                 message_id = _message_id(message)
                 board = _subject_board(str(message.get('Subject', '')).strip()) if inbox or board_number else None
                 if message_id and (not inbox or board) and (not board_number or board == board_number):
-                    originals.append(OriginalMail(uid[1], message_id, received_at, board))
+                    originals.append(OriginalMail(uid[1], message_id, received_at, board, self.selected_uid_validity))
             yield originals
 
     def download(self, folder, original):
@@ -523,26 +532,45 @@ class YandexMailbox:
             # и проверяем точный Message-ID по заголовкам, без загрузки писем.
             uids = self._search('UNDELETED', 'SINCE', _imap_date(day - timedelta(days=1)),
                                 'BEFORE', _imap_date(day + timedelta(days=2)))
+        yield from self._matching_message_headers(uids, message_id, purpose)
+
+    def _matching_message_headers(self, uids, message_id, purpose):
         for info, raw in self._fetch(uids, 'UID FLAGS BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]', purpose=purpose):
             uid = re.search(rb'\bUID (\d+)', info)
             flags = {flag.lower() for flag in imaplib.ParseFlags(info)}
             if uid and b'\\deleted' not in flags and _message_id(BytesParser(policy=policy.default).parsebytes(raw, headersonly=True)) == message_id:
                 yield uid[1], b'\\answered' in flags
 
-    def _original(self, folder, message_id, received_at, readonly=True):
-        self._select(_imap_folder(folder), readonly=readonly)
+    def _original(self, folder, message_id, received_at, readonly=True, *, uid_hint=None):
+        wire_folder = _imap_folder(folder)
+        self._select(wire_folder, readonly=readonly)
+        key = (wire_folder, message_id)
+        hint = self.original_uid_hints.get(key) or uid_hint
+        if hint and hint[0] == self.selected_uid_validity:
+            uid = str(hint[1]).encode('ascii')
+            try:
+                matches = list(self._matching_message_headers([uid], message_id, 'исходное письмо по UID'))
+            except ImapCommandError:
+                matches = []
+            if len(matches) == 1 and matches[0][0] == uid:
+                self.original_uid_hints[key] = hint
+                return matches[0]
+            self.original_uid_hints.pop(key, None)
+
         matches = list(self._messages_with_id(message_id, received_at.date(), purpose='исходное письмо'))
         if len(matches) != 1:
             return None
+        if self.selected_uid_validity is not None:
+            self.original_uid_hints[key] = self.selected_uid_validity, int(matches[0][0])
         return matches[0]
 
-    def original_answered(self, folder, message_id, received_at):
-        found = self._original(folder, message_id, received_at)
+    def original_answered(self, folder, message_id, received_at, *, uid_hint=None):
+        found = self._original(folder, message_id, received_at, uid_hint=uid_hint)
         # None означает, что нельзя подтвердить наличие исходного письма в папке.
         return found[1] if found else None
 
-    def mark_answered(self, folder, message_id, received_at):
-        found = self._original(folder, message_id, received_at, readonly=False)
+    def mark_answered(self, folder, message_id, received_at, *, uid_hint=None):
+        found = self._original(folder, message_id, received_at, readonly=False, uid_hint=uid_hint)
         if found is None:
             raise MailError('Исходное письмо не найдено однозначно для отметки об ответе.')
         self._uid('STORE', found[0], '+FLAGS.SILENT', r'(\Answered \Flagged)')
