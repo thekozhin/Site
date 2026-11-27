@@ -271,6 +271,41 @@ class YandexRequests:
                 return item, ticket
         return None, None
 
+    def _reassign_unanswered_ticket(self, link, task, original, ticket, key, folder, address):
+        if (link.message_key == key or link.reply_state != 'open' or link.reply_attempt_at is not None
+                or link.reply_sent_at is not None or self._planned_mail_kind(task)
+                or (link.mailbox, link.park, link.board_number, link.ticket_number)
+                != (address, task.park, task.board_number, ticket.ticket_number)
+                or link.recipient.casefold() != ticket.recipient.casefold()):
+            return None
+        received_at = original.received_at.astimezone(MOSCOW).replace(tzinfo=None)
+        if received_at <= (link.revision_received_at or link.received_at):
+            return None
+        previous = self.db.session.get(self.Task, link.task_id, with_for_update=True)
+        if (previous is None or previous.status != 'completed'
+                or (previous.park, previous.board_number) != (task.park, task.board_number)
+                or not isinstance(previous.completed_at, datetime) or received_at <= previous.completed_at
+                or match_imported_repair([task], ticket.description)[0] is None):
+            return None
+
+        link.task_id = task.id
+        link.message_key = key
+        link.message_id = original.message_id
+        link.folder = folder
+        link.recipient = ticket.recipient
+        link.subject = ticket.subject
+        link.received_at = received_at
+        link.imap_uid = int(original.uid)
+        link.imap_uid_validity = original.uid_validity
+        link.revision_message_key = None
+        link.revision_received_at = None
+        link.reply_state = 'pending'
+        link.reply_text = task.completed_work
+        link.reply_error = None
+        link.reply_retry_count = 0
+        link.reply_next_at = None
+        return previous.id
+
     def resolve_reply_lookups(self, mail, address, folders, *, task_id=None):
         tasks = self.Task
         query = tasks.query.filter(tasks.yandex_reply_lookup.is_(True), tasks.status == 'completed',
@@ -289,12 +324,14 @@ class YandexRequests:
                 continue
             current.yandex_reply_lookup = False
             foreign_link = None
+            reassigned_from = None
             if ticket and ticket.recipient.casefold() != address and not self._links(task.id).first():
                 key = hashlib.sha256(f'{address}\n{original.message_id}'.encode()).hexdigest()
                 link = self.model
-                existing = link.query.filter(or_(link.message_key == key, and_(
-                    link.mailbox == address, link.park == task.park, link.ticket_number == ticket.ticket_number,
-                ))).with_for_update().first()
+                existing = self.db.session.get(link, key, with_for_update=True)
+                if existing is None:
+                    existing = link.query.filter_by(mailbox=address, park=task.park,
+                                                    ticket_number=ticket.ticket_number).with_for_update().first()
                 if existing is None:
                     self.db.session.add(link(
                         task_id=task.id, mailbox=address, park=task.park, folder=folder, message_key=key,
@@ -316,7 +353,9 @@ class YandexRequests:
                     existing.reply_state = 'pending'
                     existing.reply_text = current.completed_work
                 else:
-                    foreign_link = existing.task_id
+                    reassigned_from = self._reassign_unanswered_ticket(existing, current, original, ticket, key, folder, address)
+                    if reassigned_from is None:
+                        foreign_link = existing.task_id
             self.db.session.commit()
             self.db.session.remove()
             if original is None:
@@ -325,6 +364,9 @@ class YandexRequests:
             elif ticket is None:
                 self.app.logger.info('yandex-mail: борт=%s, task=%s, в исходном письме нет подходящей заявки Excel',
                                      task.board_number, task.id)
+            elif reassigned_from is not None:
+                self.app.logger.info('yandex-mail: борт=%s, task=%s, новое письмо перенесено с закрытой заявки task=%s',
+                                     task.board_number, task.id, reassigned_from)
             elif foreign_link is not None:
                 self.app.logger.info('yandex-mail: борт=%s, task=%s, письмо привязано к другой записи task=%s',
                                      task.board_number, task.id, foreign_link)

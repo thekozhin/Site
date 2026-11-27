@@ -757,6 +757,73 @@ def test_manual_closure_uses_latest_unanswered_subject(completion, monkeypatch, 
     assert str(mail.send_reply.call_args.args[0]['In-Reply-To']) == latest
 
 
+@pytest.mark.parametrize('case', ['reissued', 'same_message', 'before_closure', 'sent', 'pending',
+                                   'active', 'other_address', 'other_defect'])
+def test_repeated_ticket_reuses_only_unanswered_link_from_closed_repair(completion, monkeypatch, case):
+    mod, _, task_id = completion
+    requests = mod.yandex_requests
+    monkeypatch.setenv('YANDEX_MAIL_ENABLED', '1')
+    monkeypatch.setenv('YANDEX_MAIL_FOLDERS', '{"14 парк":"INBOX"}')
+    monkeypatch.setattr(requests, 'submit_reply', Mock())
+    number = 'УА160225475'
+    description = 'ЕБС горит контрольная лампа'
+    now = datetime.now(MOSCOW)
+    initial_receipt = now - timedelta(hours=3)
+    old_closure = now - timedelta(hours=2)
+    repeated_receipt = now - timedelta(minutes=90 if case != 'before_closure' else 150)
+    repeated_id = '<repeat@example.org>' if case != 'same_message' else ORIGINAL_ID
+    repeated = OriginalMail(b'2', repeated_id, repeated_receipt, '164076', 500)
+
+    current = saved_task(completion)
+    current.status = 'completed'
+    mod.db.session.commit()
+    mail = fake_mail(initial_receipt, {
+        ORIGINAL_ID: mail_message(ORIGINAL_ID, number, defects=(description,)),
+    })
+    mail.unanswered.return_value = [[OriginalMail(b'1', ORIGINAL_ID, initial_receipt, '164076')]]
+    assert requests.import_requests(mail, ADDRESS, {PARK: 'INBOX'}, None, apply=True)['created'] == 1
+
+    link = requests.model.query.one()
+    old_task_id = link.task_id
+    previous_task = mod.db.session.get(mod.Task, old_task_id)
+    if case != 'active':
+        previous_task.status = 'completed'
+        previous_task.completed_at = old_closure.replace(tzinfo=None)
+    if case in ('sent', 'pending'):
+        link.reply_state = case
+    if case == 'sent':
+        link.reply_sent_at = utcnow()
+    current = mod.db.session.get(mod.Task, task_id)
+    current.status = 'in_repair'
+    current.author_open = 'Приёмщик'
+    current.description = description if case != 'other_defect' else 'Течь рулевой рейки'
+    mod.db.session.commit()
+
+    mail = fake_mail(repeated_receipt, {
+        repeated_id: mail_message(repeated_id, number, defects=(description,),
+                                  sender='other@example.org' if case == 'other_address' else 'repair@example.org'),
+    })
+    mail.unanswered.return_value = [[repeated]]
+    check, _ = run_check(completion, monkeypatch)
+    assert complete(completion, check['check_id'], completed_work=WORK).status_code == 200
+    assert saved_task(completion).yandex_reply_lookup
+
+    requests.resolve_reply_lookups(mail, ADDRESS, {PARK: 'INBOX'}, task_id=task_id)
+    assert not saved_task(completion).yandex_reply_lookup
+    assert mod.Task.query.count() == 2
+    link = requests.model.query.one()
+    if case != 'reissued':
+        assert (link.task_id, link.message_id) == (old_task_id, ORIGINAL_ID)
+        assert requests.deliver_replies(mail, ADDRESS, task_id=task_id) == 0
+        mail.send_reply.assert_not_called()
+        return
+    assert mod.db.session.get(mod.Task, old_task_id).status == 'completed'
+    assert (link.task_id, link.message_id, link.reply_state, link.reply_text) == (task_id, repeated_id, 'pending', WORK)
+    assert (link.imap_uid_validity, link.imap_uid) == (500, 2)
+    assert requests.deliver_replies(mail, ADDRESS, task_id=task_id) == 1
+    assert str(mail.send_reply.call_args.args[0]['In-Reply-To']) == repeated_id
+
+
 @pytest.mark.parametrize('linked_before_completion', [False, True])
 def test_planned_maintenance_replies_to_matching_work_type(completion, monkeypatch, linked_before_completion):
     mod, _, task_id = completion
