@@ -52,7 +52,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from dotenv import load_dotenv
 from openpyxl.styles import Font, Alignment, Border, Side
 from zoneinfo import ZoneInfo
-from yandex_mail import MAIL_TASK_AUTHOR, MailError
+from yandex_mail import MAIL_TASK_AUTHOR, MailError, YandexRequests
 from task_import_matching import active_repairs_for_board
 
 
@@ -2271,13 +2271,9 @@ def complete_task(task_id):
         mail_reply_queued = None
         try:
             mail_reply_queued = yandex_requests.queue_reply(task, deferred=mail_paused)
-            if mail_paused:
-                task.yandex_reply_lookup = False
-                for link in mail_reply_queued or ():
-                    incontrol_outbox.stage_mail_closure(task, completed_at, completed_work, is_reject, link.ticket_number)
-            elif not mail_reply_queued:
-                yandex_requests.queue_reply_lookup(task)
-            mail_lookup_queued = task.yandex_reply_lookup
+            mail_lookup_queued = yandex_requests.stage_after_closure(
+                task, mail_reply_queued, paused=mail_paused, is_reject=is_reject,
+            )
             if is_elbus and vehicle:
                 Elcar1440.query.filter_by(board=task.board_number, contract=vehicle.contract).delete()
             db.session.commit()
@@ -2298,14 +2294,9 @@ def complete_task(task_id):
                                    completed_work_value=completed_work, mileage_value=mileage), 503
         if offline:
             flash('Заявка закрыта в Сетранс и добавлена в список на отписку в InControl.', 'success')
-        if mail_reply_queued:
-            if mail_paused:
-                flash('Автоотправка в Яндекс Почту приостановлена. Письмо сохранено в «К отписке» для ручного ответа.', 'success')
-            else:
-                yandex_requests.submit_reply(task_id, mail_board_number)
-                flash(f'Письма Яндекс Почты в очереди на ответ: {len(mail_reply_queued)}.', 'success')
-        elif mail_lookup_queued:
-            yandex_requests.submit_reply(task_id, mail_board_number)
+        yandex_requests.notify_closed(
+            task_id, mail_board_number, mail_reply_queued, mail_lookup_queued, paused=mail_paused,
+        )
 
         application.logger.info(
             f'complete_task: заявка закрыта id={task.id}, '
@@ -6057,11 +6048,6 @@ def add_scheduler_job(job_id, func, trigger):
     )
 
 
-def run_yandex_mail_cycle():
-    yandex_requests.run(replies_only=True)
-    return yandex_requests.run(import_only=True)
-
-
 def start_scheduler():
     from ktg_history import register_ktg_scheduler_jobs
     if scheduler.running:
@@ -6106,12 +6092,7 @@ def start_scheduler():
     register_ktg_scheduler_jobs(add_scheduler_job, CronTrigger)
 
     incontrol_integration.register_scheduler_jobs(add_scheduler_job)
-    if yandex_requests.enabled():
-        add_scheduler_job(
-            'yandex_mail_sync',
-            lambda: run_locked_sync_job('yandex_mail_sync', run_yandex_mail_cycle, 'yandex_mail'),
-            CronTrigger(minute='*/1', timezone=tz),
-        )
+    yandex_requests.register_scheduler_jobs(add_scheduler_job, run_locked_sync_job)
 
     scheduler.start()
     application.logger.info(f"Scheduler started in pid={os.getpid()} with jobs={len(scheduler.get_jobs())}")
@@ -6149,9 +6130,7 @@ class KtgSnapshot(db.Model):
 from body_repair_sync import BodyRepair, register_body_repair_routes
 register_body_repair_routes(application)
 
-from yandex_requests import YandexRequests
 yandex_requests = YandexRequests(application, db, Task, Car, Elcar)
-application.add_template_global(yandex_requests.link_for, 'yandex_request_for')
 
 incontrol_integration = IncontrolIntegration(application, db, Task, Car, Elcar, yandex_requests, run_locked_sync_job)
 completion_checks = incontrol_integration.checks

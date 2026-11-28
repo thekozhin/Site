@@ -8,7 +8,7 @@ from unittest.mock import Mock, call
 
 import pytest
 
-import yandex_oauth as oauth
+import yandex_mail as oauth
 from yandex_mail import MailError, YandexMailbox
 
 

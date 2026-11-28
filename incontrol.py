@@ -37,7 +37,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from urllib3.util.retry import Retry
 
 from task_import_matching import active_repairs_for_board, manual_repair_candidates, match_imported_repair
-from yandex_mail import MAIL_TASK_AUTHOR
+from yandex_mail import MAIL_TASK_AUTHOR, utcnow
 
 
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
@@ -1794,11 +1794,6 @@ class FulfillmentFlow(RejectionFlow):
 
 
 # --- Фоновая проверка перед локальным закрытием --------------------------------
-
-def utcnow():
-    """Вернуть время UTC без часового пояса для записей фоновых процессов."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
 
 class CompletionChecks:
     """Короткие HTTP-запросы формы и однократные результаты фоновой проверки."""
