@@ -5,20 +5,20 @@ import threading
 
 import pytest
 
-from completion_checks import utcnow
+from incontrol import incontrol_now, utcnow
 
 
 @pytest.fixture
 def completion(app_ctx, monkeypatch):
     mod = app_ctx
-    monkeypatch.setattr(mod, 'INCONTROL_ENABLED', True)
+    monkeypatch.setattr(mod.incontrol_integration, 'enabled', True)
     monkeypatch.setattr(mod.completion_checks, '_submit', lambda check_id: True)
     mod.application.config['WTF_CSRF_ENABLED'] = False
     user = mod.User(username='completion-tester', password='unused', full_name='Тест',
                     allowed_parks=['14 парк'], company='Сетранс')
     task = mod.Task(board_number='164076', park='14 парк', status='in_repair',
                     description='Ремонт', tag='in_work', type_ts='Автобус',
-                    created_at=mod.incontrol_now() - timedelta(hours=2))
+                    created_at=incontrol_now() - timedelta(hours=2))
     car = mod.Car(bort='164076', location='14 парк', contract='216644', mileage=100)
     mod.db.session.add_all([user, task, car])
     mod.db.session.commit()
@@ -41,7 +41,7 @@ def start(completion):
 def complete(completion, check_id=None, **extra):
     mod, client, task_id = completion
     data = dict(completed_work='Заменён узел', mileage='555',
-                work_in=(mod.incontrol_now() - timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M'))
+                work_in=(incontrol_now() - timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M'))
     if check_id:
         data['completion_check_id'] = check_id
     data.update(extra)
@@ -214,8 +214,8 @@ def test_queue_full_returns_retryable_error(completion, monkeypatch):
 
 
 def test_disabled_integration_does_not_allow_unchecked_completion(completion, monkeypatch):
-    monkeypatch.setattr(completion[0], 'INCONTROL_ENABLED', False)
-    monkeypatch.setattr(completion[0].incontrol_rejections, 'enabled', lambda: False)
+    monkeypatch.setattr(completion[0].incontrol_integration, 'enabled', False)
+    monkeypatch.setattr(completion[0].incontrol_integration.rejections, 'enabled', lambda: False)
     response = complete(completion, check_id='forged')
     assert response.status_code == 200
     assert 'Проверку пропустить нельзя' in response.text
@@ -233,7 +233,7 @@ def test_reject_also_requires_success(completion, monkeypatch):
 def test_reject_using_only_the_reason_preserves_saved_work_time(completion, monkeypatch):
     mod, client, task_id = completion
     task = saved_task(completion)
-    previous_start = mod.incontrol_now().replace(microsecond=0) - timedelta(hours=1)
+    previous_start = incontrol_now().replace(microsecond=0) - timedelta(hours=1)
     task.work_in = previous_start
     mod.db.session.commit()
     job, _ = run_check(completion, monkeypatch)
@@ -301,7 +301,7 @@ def test_worker_does_not_block_http_and_cannot_close_by_itself(completion, monke
 
 
 def test_timeout_is_forwarded_and_interactive_retries_are_disabled(app_ctx):
-    client = app_ctx._make_incontrol_client(timeout=7, interactive=True)
+    client = app_ctx.incontrol_integration._make_incontrol_client(timeout=7, interactive=True)
     try:
         assert client.timeout == 7
         assert client.session.get_adapter('https://').max_retries.total == 0
@@ -332,7 +332,7 @@ def test_check_cannot_be_used_for_another_task(completion, monkeypatch):
     mod, client, _ = completion
     job, _ = run_check(completion, monkeypatch)
     other = mod.Task(board_number='164077', park='14 парк', status='in_repair',
-                     description='Другая заявка', tag='in_work', created_at=mod.incontrol_now() - timedelta(hours=2))
+                     description='Другая заявка', tag='in_work', created_at=incontrol_now() - timedelta(hours=2))
     mod.db.session.add(other)
     mod.db.session.commit()
     complete((mod, client, other.id), job['check_id'])

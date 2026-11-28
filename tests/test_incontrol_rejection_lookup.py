@@ -1,6 +1,6 @@
 from unittest.mock import Mock
 import pytest
-from incontrol_rejection import find_open_main_tasks, RejectionError
+from incontrol import find_open_main_tasks, RejectionError
 
 
 def item(tid=10,board='164466',work='Заявка на ремонт',phase='Принято.',org=1059):

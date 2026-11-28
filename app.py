@@ -29,7 +29,7 @@ from flask import render_template, request, redirect, url_for, flash
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-import incontrol
+from incontrol import IncontrolIntegration, normalize_board as normalize_task_board, paused_closure_services
 import openpyxl
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment
@@ -53,7 +53,7 @@ from dotenv import load_dotenv
 from openpyxl.styles import Font, Alignment, Border, Side
 from zoneinfo import ZoneInfo
 from yandex_mail import MAIL_TASK_AUTHOR, MailError
-from task_import_matching import active_repairs_for_board, manual_repair_candidates, match_imported_repair
+from task_import_matching import active_repairs_for_board
 
 
 load_dotenv()
@@ -313,7 +313,6 @@ TAG_CHOICES = {
 }
 
 TO_TASK_NOTICE = 'Заявка предназначена для ТО. Тип ТО изменить нельзя, можно добавить только дополнительные работы.'
-OPEN_PHASES = (1, 2, 3)
 
 def is_to_schedule_task(task):
     return bool(task and (task.id_to or task.tag == 'to'))
@@ -680,61 +679,6 @@ class Task(db.Model):
     yandex_reply_lookup = db.Column(db.Boolean, nullable=False, server_default='0', index=True)
 
 
-class IncontrolStatus(db.Model):
-    """Кеш заявок incontrol24 по бортам.
-
-    На один борт может приходиться несколько заявок,
-    поэтому уникальность определяется парой:
-    board_number + work_name.
-    """
-
-    __tablename__ = 'incontrol_status'
-
-    __table_args__ = {
-        'mysql_charset': 'utf8mb4',
-        'mysql_collate': 'utf8mb4_unicode_ci',
-    }
-
-    board_number = db.Column(db.String(20), primary_key=True)
-    work_name = db.Column(db.String(255), primary_key=True)
-
-    has_open = db.Column(db.Boolean, nullable=False, default=False)
-    phase_name = db.Column(db.String(50), nullable=True)
-    checked_at = db.Column(db.DateTime, nullable=False, index=True)
-
-    def __repr__(self):
-        return (
-            f"<IncontrolStatus "
-            f"{self.board_number} "
-            f"{self.work_name} "
-            f"open={self.has_open}>"
-        )
-
-
-# --- Интеграция с incontrol24 -------------------------------------------------
-
-INCONTROL_ENABLED = os.getenv('INCONTROL_ENABLED', '0') == '1'
-
-# Полный обход трёх организаций занимает около 163 секунд (замер 2026-08-02:
-# 38 запросов, ~4 с на страницу). Интервал меньше длительности обхода не даёт
-# выигрыша: задача просто запускается встык (max_instances=1, coalesce).
-INCONTROL_INTERVAL = int(os.getenv('INCONTROL_INTERVAL', '1800'))
-
-# Порог устаревания с запасом на один сорванный проход:
-# 300 с интервал + 163 с обход = ~8 минут в худшем случае, при одном
-# пропущенном проходе - около 13. Пятнадцать минут переживают один сбой.
-INCONTROL_STALE_MINUTES = int(os.getenv('INCONTROL_STALE_MINUTES', '30'))
-
-
-def incontrol_now():
-    """Текущее московское время без таймзоны — как хранится в базе проекта."""
-    return datetime.now(pytz.timezone('Europe/Moscow')).replace(tzinfo=None)
-
-
-def normalize_task_board(board_number):
-    return incontrol.normalize_board(board_number)
-
-
 def get_active_task_for_board(board_number, *, lock=False):
     board = normalize_task_board(board_number)
     if not board:
@@ -759,483 +703,6 @@ def get_active_task_for_board(board_number, *, lock=False):
         .order_by(Task.created_at.desc())
         .first()
     )
-
-
-def get_incontrol_boards(boards):
-    """Из переданных бортов вернуть те, у кого есть открытая заявка.
-
-    Устаревшие проверки отбрасываются: бейдж утверждает, что заявка есть
-    сейчас, и показывать по нему данные десятиминутной давности нельзя.
-    Отсутствие бейджа при сбое означает «не знаем», а не «заявки нет».
-    """
-    normalized = {incontrol.normalize_board(board) for board in boards}
-    normalized.discard(None)
-    if not normalized:
-        return set()
-
-    cutoff = incontrol_now() - timedelta(minutes=INCONTROL_STALE_MINUTES)
-    try:
-        rows = IncontrolStatus.query.filter(
-            IncontrolStatus.board_number.in_(normalized),
-            IncontrolStatus.has_open.is_(True),
-            IncontrolStatus.work_name != 'Заявка на мойку'
-        ).all()
-    except SQLAlchemyError as error:
-        # Таблицы может ещё не быть (не создана на сервере) или база недоступна.
-        # Бейдж - вспомогательная метка: она не имеет права ронять список задач.
-        application.logger.warning(f'incontrol24: кеш недоступен: {error}')
-        db.session.rollback()
-        return set()
-    return {row.board_number for row in rows}
-
-
-def _make_incontrol_client(timeout=30, interactive=False):
-    """Отдельной функцией — чтобы подменяться в тестах."""
-    return incontrol.IncontrolClient(
-        os.getenv('INCONTROL_LOGIN'),
-        os.getenv('INCONTROL_PASSWORD'),
-        timeout=timeout,
-        interactive=interactive,
-    )
-def refresh_incontrol_status_for_board(
-    board_number,
-    park,
-    required_work_names
-):
-    """Точечно проверить нужный тип заявки для одного борта."""
-
-    if not INCONTROL_ENABLED:
-        return None
-
-    board = incontrol.normalize_board(board_number)
-
-    if not board:
-        raise incontrol.IncontrolError('Не указан борт для проверки InControl')
-    if incontrol.is_outside_incontrol(park):
-        return None
-
-    import time
-
-    started = time.monotonic()
-
-    client = None
-    try:
-        t = time.monotonic()
-        # Ответ списка заявок InControl на практике занимает до 20+ секунд.
-        # Проверка уже фоновая: 7 секунд обрывали корректные медленные ответы.
-        client = _make_incontrol_client(timeout=25, interactive=True)
-        application.logger.info(
-            f'incontrol24: создание клиента: {time.monotonic() - t:.2f} сек'
-        )
-
-        t = time.monotonic()
-        client.authenticate()
-        application.logger.info(
-            f'incontrol24: authenticate: {time.monotonic() - t:.2f} сек'
-        )
-
-        t = time.monotonic()
-        has_open, phase_name, work_name = client.check_board_details(
-            board,
-            park,
-            required_work_names
-        )
-        application.logger.info(
-            f'incontrol24: check_board_details: {time.monotonic() - t:.2f} сек'
-        )
-
-        application.logger.info(
-            f'incontrol24: точечная проверка борта {board}: '
-            f'Есть в БД = {has_open}, '
-            f'Этап = {phase_name}, '
-            f'Тип заявки = {work_name}, '
-            f'общее время = {time.monotonic() - started:.2f} сек'
-        )
-
-        return work_name if has_open else None
-
-    except Exception as error:
-        application.logger.error(
-            f'incontrol24: ошибка точечной проверки борта '
-            f'{board}: {error}, '
-            f'время = {time.monotonic() - started:.2f} сек'
-        )
-
-        raise incontrol.IncontrolError('Не удалось проверить заявку в InControl') from error
-    finally:
-        if client is not None:
-            client.session.close()
-
-def refresh_incontrol_statuses():
-    """Получить снимок InControl без транзакции БД, затем обновить кеш."""
-    if not INCONTROL_ENABLED:
-        return {'status': 'disabled'}
-
-    started = _time.monotonic()
-    fetch_seconds = 0.0
-    write_seconds = 0.0
-    checked = skipped = 0
-    failed_orgs = set()
-    client = None
-    try:
-        has_tasks = db.session.query(Task.id).filter_by(status='in_repair').first() is not None
-        db.session.remove()
-        if not has_tasks:
-            IncontrolStatus.query.delete(synchronize_session=False)
-            db.session.commit()
-            return {'status': 'ok', 'проверено': 0, 'пропущено': 0, 'ошибок': 0}
-
-        fetch_started = _time.monotonic()
-        try:
-            client = _make_incontrol_client()
-            client.authenticate()
-            open_by_org = {}
-            for org_id in incontrol.ALL_ORGS:
-                try:
-                    open_by_org[org_id] = client.fetch_open_boards(org_id)
-                except Exception:
-                    failed_orgs.add(org_id)
-                    application.logger.exception('incontrol24: кеш, организация %s недоступна', org_id)
-        finally:
-            fetch_seconds += _time.monotonic() - fetch_started
-
-        # Перечитываем после сетевого обхода: за это время заявку могли закрыть
-        # или создать вручную. ORM-соединение не удерживалось во время обхода.
-        write_started = _time.monotonic()
-        pairs = db.session.query(Task.board_number, Task.park).filter(
-            Task.status == 'in_repair'
-        ).distinct().all()
-        boards = {}
-        for board_number, park in pairs:
-            board = incontrol.normalize_board(board_number)
-            if board:
-                boards.setdefault(board, park)
-
-        replacements = []
-        rows = []
-        now = incontrol_now()
-        for board, park in boards.items():
-            org_id = incontrol.park_to_org(park)
-            orgs = ([] if incontrol.is_outside_incontrol(park) else
-                    [org_id] if org_id else list(incontrol.ALL_ORGS))
-            # При неизвестном парке нужен полный ответ всех организаций.
-            # Частичный ответ не доказывает отсутствие заявки.
-            if any(org in failed_orgs for org in orgs):
-                skipped += 1
-                continue
-            board_tasks = {}
-            for org in orgs:
-                for info in open_by_org.get(org, {}).get(board, []):
-                    work_name = (info.get('work_name') or '').strip()
-                    if work_name:
-                        board_tasks[work_name] = info.get('phase_name')
-            replacements.append(board)
-            rows.extend(IncontrolStatus(
-                board_number=board, work_name=work_name, has_open=True,
-                phase_name=phase, checked_at=now,
-            ) for work_name, phase in board_tasks.items())
-            checked += 1
-
-        # Вся замена атомарна: до commit читатели видят прежний снимок.
-        for chunk in _incontrol_chunks(replacements):
-            IncontrolStatus.query.filter(IncontrolStatus.board_number.in_(chunk)).delete(synchronize_session=False)
-        if boards:
-            IncontrolStatus.query.filter(~IncontrolStatus.board_number.in_(list(boards))).delete(synchronize_session=False)
-        else:
-            IncontrolStatus.query.delete(synchronize_session=False)
-        db.session.add_all(rows)
-        db.session.commit()
-        write_seconds = _time.monotonic() - write_started
-        return {'status': 'ok', 'проверено': checked, 'пропущено': skipped, 'ошибок': len(failed_orgs)}
-    except Exception as error:
-        db.session.rollback()
-        application.logger.exception('incontrol24: обновление кеша не выполнено, прежние данные сохранены')
-        return {'status': 'error', 'message': str(error)}
-    finally:
-        db.session.remove()
-        client_session = getattr(client, 'session', None)
-        if client_session is not None:
-            client_session.close()
-        application.logger.info(
-            'INCONTROL_SYNC job=cache total_ms=%.1f fetch_ms=%.1f write_ms=%.1f checked=%s skipped=%s failed_orgs=%s',
-            (_time.monotonic() - started) * 1000, fetch_seconds * 1000,
-            write_seconds * 1000, checked, skipped, len(failed_orgs),
-        )
-
-
-def _incontrol_chunks(values, size=500):
-    values = list(values)
-    for start in range(0, len(values), size):
-        yield values[start:start + size]
-
-
-def _incontrol_board_key(value):
-    """Те же варианты номера, которые учитывает get_active_task_for_board."""
-    board = normalize_task_board(value)
-    if not board:
-        return None
-    board = board.replace('\xa0', '').replace(' ', '')
-    return board[:-2] if board.endswith('.0') else board
-
-
-def _incontrol_return_candidates(applications):
-    run_model = incontrol_rejections.model
-    closed = db.session.query(Task.id, Task.board_number, Task.park, Task.completed_at)
-    closed = closed.filter(Task.status == 'completed')
-    matches = {}
-    for remote_ids in _incontrol_chunks(applications):
-        direct = closed.add_columns(Task.incontrol_task_id).filter(Task.incontrol_task_id.in_(remote_ids))
-        historical = closed.add_columns(run_model.remote_id).join(run_model, run_model.task_id == Task.id).filter(
-            Task.incontrol_task_id.is_(None), run_model.remote_id.in_(remote_ids), run_model.state == 'consumed',
-        )
-        for task_id, board, park, completed_at, remote_id in (*direct.all(), *historical.all()):
-            info = applications[remote_id]
-            if (_incontrol_board_key(board) == _incontrol_board_key(info['board'])
-                    and park == incontrol.org_to_park(info['org_id'])):
-                matches.setdefault(remote_id, set()).add((task_id, completed_at))
-    return {remote_id: next(iter(rows)) for remote_id, rows in matches.items() if len(rows) == 1}
-
-
-def _reopen_incontrol_repair(task_id, completed_at, remote_id, board, park, reason):
-    task = Task.query.filter_by(id=task_id).populate_existing().with_for_update().first()
-    if (task is None or task.status != 'completed' or task.completed_at != completed_at
-            or task.incontrol_task_id not in (None, remote_id) or task.park != park
-            or _incontrol_board_key(task.board_number) != _incontrol_board_key(board)):
-        return False
-    run_model = incontrol_rejections.model
-    run = run_model.query.filter_by(task_id=task_id).with_for_update().first()
-    if run and (run.state != 'consumed' or run.remote_id not in (None, remote_id)):
-        return False
-    if task.incontrol_task_id is None and (run is None or run.remote_id != remote_id):
-        return False
-    if run:
-        db.session.delete(run)
-    completion_checks.model.query.filter_by(task_id=task_id).delete(synchronize_session=False)
-    task.incontrol_task_id = remote_id
-    task.status = 'in_repair'
-    task.tag = 'in_work'
-    task.stk_returned = reason == 'stk'
-    task.unresolved_returned = reason == 'unresolved'
-    task.completed_at = None
-    task.author_closed = None
-    task.reject = False
-    task.yandex_reply_lookup = False
-    db.session.commit()
-    return True
-
-
-def create_tasks_from_incontrol():
-    """Импорт: сетевой обход, короткий отбор, затем сеть и короткая запись."""
-    if not INCONTROL_ENABLED:
-        return {'status': 'disabled'}
-
-    started = _time.monotonic()
-    fetch_seconds = write_seconds = 0.0
-    created = linked = reopened = skipped = errors = 0
-    client = None
-    import_parks = {'14 парк', '1 парк', 'Красная Пахра', '18 парк'}
-    import_orgs = [org for org, park in incontrol.ORG_TO_PARK.items() if park in import_parks]
-    return_parks = set()
-    if os.getenv('INCONTROL_RETURNS_ENABLED', '1') == '1':
-        configured_parks = os.getenv('INCONTROL_RETURN_PARKS', ','.join(sorted(import_parks)))
-        return_parks = {name.strip() for name in configured_parks.split(',')} & import_parks
-    application.logger.info('incontrol24: запуск проверки новых заявок из InControl...')
-    # Функция вызывается в отдельном app_context планировщика.
-    db.session.remove()
-    try:
-        fetch_started = _time.monotonic()
-        try:
-            client = _make_incontrol_client()
-            client.authenticate()
-            applications = []
-            for org_id in import_orgs:
-                try:
-                    applications.extend(client.fetch_open_applications(org_id))
-                except Exception:
-                    errors += 1
-                    application.logger.exception('incontrol24: импорт, организация %s недоступна', org_id)
-        finally:
-            fetch_seconds += _time.monotonic() - fetch_started
-
-        by_id = {}
-        returned_repairs = {}
-        for info in applications:
-            if info.get('work_name') == 'Заявка на сервисное обслуживание':
-                continue
-            if info.get('task_id'):
-                if info.get('return_reason'):
-                    if incontrol.org_to_park(info.get('org_id')) in return_parks:
-                        returned_repairs.setdefault(info['task_id'], info)
-                else:
-                    by_id.setdefault(info['task_id'], info)
-
-        # Уже известные id исключаем пакетно, вместо SQL-запроса на каждую
-        # старую заявку в полной выдаче InControl.
-        select_started = _time.monotonic()
-        return_candidates = _incontrol_return_candidates(returned_repairs)
-        existing_ids = set()
-        for chunk in _incontrol_chunks(by_id):
-            existing_ids.update(row[0] for row in db.session.query(Task.incontrol_task_id).filter(
-                Task.incontrol_task_id.in_(chunk)
-            ).all())
-        new_info = [info for task_id, info in by_id.items() if task_id not in existing_ids]
-        vehicle_boards = {normalize_task_board(info.get('board')) for info in new_info}
-        vehicle_boards.discard(None)
-        locations = {}
-        for model in (Elcar, Car):  # При совпадении номера приоритет автобуса, как раньше.
-            for chunk in _incontrol_chunks(vehicle_boards):
-                locations.update(db.session.query(model.bort, model.location).filter(model.bort.in_(chunk)).all())
-        candidates = []
-        for info in by_id.values():
-            board = normalize_task_board(info.get('board'))
-            if info['task_id'] in existing_ids or not board or board not in locations:
-                skipped += 1
-                continue
-            park = incontrol.org_to_park(info.get('org_id')) or locations[board]
-            if park not in import_parks:
-                skipped += 1
-                continue
-            candidates.append((board, dict(info)))
-        db.session.remove()
-        write_seconds += _time.monotonic() - select_started
-
-        for remote_id, (task_id, completed_at) in return_candidates.items():
-            info = returned_repairs[remote_id]
-            park = incontrol.org_to_park(info['org_id'])
-            fetch_started = _time.monotonic()
-            try:
-                fresh = client.get_task_by_id(remote_id, info['org_id'])
-                if not fresh or fresh.get('stage') in ('denied', 'completed'):
-                    continue
-                if _incontrol_board_key(incontrol.board_of(fresh)) != _incontrol_board_key(info['board']):
-                    continue
-                reason = incontrol.repair_return_reason(
-                    ((fresh.get('type_work') or {}).get('work_name') or '').strip(),
-                    (fresh.get('phase') or {}).get('phase_name'),
-                    ((fresh.get('label') or {}).get('label_name') or '').strip(),
-                )
-                if not reason:
-                    continue
-            except Exception:
-                errors += 1
-                application.logger.exception('incontrol24: не удалось подтвердить возврат по заявке %s', remote_id)
-                continue
-            finally:
-                fetch_seconds += _time.monotonic() - fetch_started
-
-            write_started = _time.monotonic()
-            try:
-                if _reopen_incontrol_repair(task_id, completed_at, remote_id, info['board'], park, reason):
-                    reopened += 1
-                    return_label = 'СТК' if reason == 'stk' else '«Неисправности не устранены»'
-                    application.logger.info('incontrol24: возврат %s, заявка %s, task=%s, борт=%s, парк=%s',
-                                            return_label, remote_id, task_id, info['board'], park)
-            finally:
-                db.session.remove()
-                write_seconds += _time.monotonic() - write_started
-
-        for board, info in candidates:
-            # Предыдущая запись полностью завершена, соединение возвращено
-            # в пул до любого обращения к внешнему сервису.
-            fetch_started = _time.monotonic()
-            try:
-                fresh = client.get_task_by_id(info['task_id'], info.get('org_id'))
-                if not fresh or fresh.get('stage') in ('denied', 'completed'):
-                    skipped += 1
-                    continue
-                phase_id = (fresh.get('phase') or {}).get('id')
-                label = ((fresh.get('label') or {}).get('label_name') or '').strip()
-                if (phase_id is not None and phase_id not in OPEN_PHASES) or label in incontrol.IGNORED_LABELS:
-                    skipped += 1
-                    continue
-                work_name = ((fresh.get('type_work') or {}).get('work_name') or info.get('work_name') or '').strip()
-                if work_name not in {'Заявка на ремонт', 'Заявка на ремонт с линии'}:
-                    skipped += 1
-                    continue
-                description = client.build_description_from_linked(info.get('linked_ids'), info.get('org_id'))
-                description = description or info.get('work_name') or 'Заявка InControl'
-            except Exception:
-                skipped += 1
-                errors += 1
-                application.logger.exception('incontrol24: перепроверка заявки %s не выполнена', info['task_id'])
-                continue
-            finally:
-                fetch_seconds += _time.monotonic() - fetch_started
-
-            write_started = _time.monotonic()
-            try:
-                # Импорты и ручное создание используют одну блокировку строки борта.
-                vehicle = Car.query.filter_by(bort=board).with_for_update().first()
-                is_elbus = vehicle is None
-                if vehicle is None:
-                    vehicle = Elcar.query.filter_by(bort=board).with_for_update().first()
-                if vehicle is None:
-                    skipped += 1
-                    continue
-                park = incontrol.org_to_park(info.get('org_id')) or vehicle.location
-                if park not in import_parks:
-                    skipped += 1
-                    continue
-                if Task.query.filter_by(incontrol_task_id=info['task_id']).first():
-                    skipped += 1
-                    continue
-                active_repairs = active_repairs_for_board(Task, board).with_for_update().all()
-                if active_repairs:
-                    candidates = manual_repair_candidates(
-                        active_repairs, park, excluded_authors=(MAIL_TASK_AUTHOR, 'InControl', 'Система'),
-                    )
-                    task, extras = match_imported_repair(
-                        (candidate for candidate in candidates if candidate.incontrol_task_id is None), description,
-                    )
-                    if task is None:
-                        skipped += 1
-                        continue
-                    task_id = task.id
-                    task.incontrol_task_id = info['task_id']
-                    if extras:
-                        task.description = '\n'.join((task.description.rstrip(), *extras))
-                    db.session.commit()
-                    linked += 1
-                    application.logger.info('incontrol24: привязана заявка %s, task=%s, борт=%s, парк=%s',
-                                            info['task_id'], task_id, board, park)
-                    continue
-                created_at = incontrol_now()
-                if info.get('creation_date') is not None:
-                    try:
-                        created_at = datetime.fromtimestamp(int(info['creation_date']), tz).replace(tzinfo=None)
-                    except (TypeError, ValueError, OSError):
-                        application.logger.warning('incontrol24: некорректная дата заявки %s', info['task_id'])
-                task = Task(
-                    board_number=board, description=description, park=park,
-                    status='in_repair', created_at=created_at, tag='waiting',
-                    type_ts=vehicle.type_ts or ('Электробус' if is_elbus else 'Автобус'),
-                    author_open='InControl', contract=vehicle.contract, vin=vehicle.vin,
-                    incontrol_task_id=info['task_id'],
-                )
-                db.session.add(task)
-                db.session.commit()
-                created += 1
-                application.logger.info('incontrol24: импортирована заявка %s, борт=%s, парк=%s', info['task_id'], board, park)
-            finally:
-                db.session.remove()
-                write_seconds += _time.monotonic() - write_started
-
-        return {'status': 'ok', 'created': created, 'linked': linked, 'reopened': reopened, 'skipped': skipped, 'errors': errors}
-    except Exception as error:
-        db.session.rollback()
-        application.logger.exception('incontrol24: импорт прерван')
-        return {'status': 'error', 'message': str(error), 'created': created, 'linked': linked,
-                'reopened': reopened, 'skipped': skipped, 'errors': errors + 1}
-    finally:
-        db.session.remove()
-        client_session = getattr(client, 'session', None)
-        if client_session is not None:
-            client_session.close()
-        application.logger.info(
-            'INCONTROL_SYNC job=import total_ms=%.1f fetch_ms=%.1f db_ms=%.1f created=%s linked=%s reopened=%s skipped=%s errors=%s',
-            (_time.monotonic() - started) * 1000, fetch_seconds * 1000,
-            write_seconds * 1000, created, linked, reopened, skipped, errors,
-        )
 
 
 def parse_datetime_value(value):
@@ -1447,12 +914,6 @@ class Ktg_na_19(db.Model):
     mark_2 = db.Column(db.String(20))  # 2 отметка
     mark_3 = db.Column(db.String(20))  # 3 отметка
     mark_4 = db.Column(db.String(20))  # 4 отметка
-
-
-@application.template_filter('completed_work_text')
-def completed_work_text(value):
-    from incontrol_child_plan import plain_completed_work
-    return plain_completed_work(value)
 
 
 @application.template_filter('nonone')
@@ -2044,7 +1505,7 @@ def index():
 
     # Борта, по которым у заказчика в incontrol24 есть открытая заявка.
     # Читаем только кеш - наружу страница не ходит.
-    incontrol_boards = get_incontrol_boards(board_numbers)
+    incontrol_boards = incontrol_integration.get_incontrol_boards(board_numbers)
 
     # 8. Расчет заявок за смену (08:00 - 08:00)
     excluded_patterns = ['линии', 'линию', 'линия', 'предоставлен', 'кузовном']
@@ -2584,10 +2045,7 @@ def edit_task_order(task_id):
 
 @application.context_processor
 def inject_pytz():
-    return {'pytz': pytz, 'format_datetime': format_datetime,
-            'requires_completion_check': completion_checks.required,
-            'incontrol_closure_paused': completion_checks.paused,
-            'paused_closure_services': paused_closure_services}
+    return {'pytz': pytz, 'format_datetime': format_datetime}
 
 
 @application.route('/check_board', methods=['POST'])
@@ -2628,17 +2086,7 @@ def complete_task(task_id):
     is_evacuation = task.event_type and 'эвакуация' in task.event_type.lower()
 
     if request.method == 'GET' and request.args.get('rejection_run'):
-        run, run_task = incontrol_rejections.owned(request.args['rejection_run'])
-        if run_task.id != task.id:
-            abort(404)
-        saved = incontrol_rejections.unpack(run)
-        return render_template('complete_task.html', task=task, current_mileage=current_mileage,
-                               is_evacuation=is_evacuation, completed_work_value=saved['form']['completed_work'],
-                               mileage_value=saved['form']['mileage'], work_in_value=saved['form']['work_in'],
-                               incontrol_main_id_value=saved['remote_id'], incontrol_mode_value=saved.get('mode', 'reject'),
-                               seasonal_service_value=saved['form'].get('seasonal_service', '0'),
-                               evacuation_confirmed_value=saved['form'].get('evacuation_photos_confirmed', ''),
-                               child_decisions_value=saved['form'].get('child_decisions', ''))
+        return incontrol_integration.resume_closure(task, current_mileage, is_evacuation, request.args['rejection_run'])
 
     if request.method == 'POST':
 
@@ -2784,33 +2232,11 @@ def complete_task(task_id):
                     mileage_value=request.form.get('mileage')
                 )
 
-        incontrol_paused = completion_checks.paused(task)
-        offline = incontrol_paused or bool(request.form.get('offline_run_id') or request.form.get('offline_check_id'))
-        if offline:
-            from incontrol_rejection import RejectionError
-            try:
-                incontrol_outbox.stage_closure(task, completed_at, completed_work, is_reject, paused=incontrol_paused)
-                check_error = None
-            except RejectionError as exc:
-                check_error = str(exc)
-        elif request.form.get('completion_check_id') and completion_checks.required(task):
-            # Одноразовое подтверждение старой проверки допустимо только при реально
-            # включённой проверке: оно удостоверяет отсутствие открытой заявки.
-            check_error = completion_checks.consume(task, request.form['completion_check_id'])
-        elif incontrol_rejections.applies(task, request.form):
-            if request.form.get('incontrol_rejection_run'):
-                check_error = incontrol_rejections.consume(task, request.form)
-            else:
-                from incontrol_rejection import RejectionError
-                from incontrol_accounts import PersonalAccountError
-                try:
-                    return incontrol_rejections.start(task, request.form)
-                except (RejectionError, PersonalAccountError) as exc:
-                    check_error = str(exc)
-                except SQLAlchemyError:
-                    check_error = 'Не удалось начать отклонение InControl. Проверьте наличие таблиц настроек и процесса.'
-        else:
-            check_error = completion_checks.consume(task, request.form.get('completion_check_id'))
+        offline, check_error, incontrol_response = incontrol_integration.prepare_closure(
+            task, request.form, completed_at, completed_work, is_reject,
+        )
+        if incontrol_response is not None:
+            return incontrol_response
         if check_error:
             db.session.rollback()
             flash(check_error, 'error')
@@ -3710,11 +3136,6 @@ def save_19():
                 "status": "error",
                 "message": str(e)
             }
-
-
-def run_incontrol_job_once(job_name, job_func):
-    """Общий mutex двух обходов, не привязанный к ORM-транзакции сайта."""
-    return run_locked_sync_job(job_name, job_func, 'incontrol_sync')
 
 
 def run_locked_sync_job(job_name, job_func, lock_scope):
@@ -5180,7 +4601,7 @@ def normalize_to_type(value):
     return result
 
 
-def normalize_board(value):
+def normalize_task_board(value):
     text = clean_excel_text(value)
 
     if not text or text.lower() == 'резерв':
@@ -5227,7 +4648,7 @@ def parse_to_schedule_excel(file_storage, year):
                 continue
 
             for board_col, schedule_date in dates_by_col.items():
-                board = normalize_board(sheet.cell(row=row, column=board_col).value)
+                board = normalize_task_board(sheet.cell(row=row, column=board_col).value)
                 to_type = normalize_to_type(sheet.cell(row=row, column=board_col + 1).value)
 
                 if not board or not to_type:
@@ -6684,33 +6105,7 @@ def start_scheduler():
     
     register_ktg_scheduler_jobs(add_scheduler_job, CronTrigger)
 
-    # Два обхода используют общий mutex на выделенном соединении MySQL:
-    # процессов веб-сервера несколько, и без блокировки опрос пойдёт в несколько
-    # потоков, умножив число запросов к чужому API.
-    if INCONTROL_ENABLED:
-        add_scheduler_job(
-            "refresh_incontrol_statuses",
-            lambda: run_incontrol_job_once(
-                "refresh_incontrol_statuses",
-                refresh_incontrol_statuses
-            ),
-            CronTrigger(
-                minute='7,37',
-                timezone=tz
-            )
-        )
-        # Импорт новых заявок InControl → Task (борта без активной заявки).
-        add_scheduler_job(
-            "create_tasks_from_incontrol",
-            lambda: run_incontrol_job_once(
-                "create_tasks_from_incontrol",
-                create_tasks_from_incontrol
-            ),
-            CronTrigger(
-                minute='*/15',
-                timezone=tz
-            )
-        )
+    incontrol_integration.register_scheduler_jobs(add_scheduler_job)
     if yandex_requests.enabled():
         add_scheduler_job(
             'yandex_mail_sync',
@@ -6736,16 +6131,7 @@ def check_disabled_parks():
                 logout_user()
                 return redirect(url_for('login'))
 
-@application.route('/debug_incontrol_tasks')
-def debug_incontrol_tasks():
-    client = _make_incontrol_client()
-    client.authenticate()
 
-    client.debug_task_by_id(19311671)
-    client.debug_task_by_id(19311705)
-
-    return 'Проверка выполнена. Смотри консоль Flask.'
-    
 class KtgSnapshot(db.Model):
     __tablename__ = 'ktg_snapshot'
 
@@ -6760,29 +6146,16 @@ class KtgSnapshot(db.Model):
         db.Index('ix_ktg_snapshot_park_time', 'park', 'recorded_at'),
     )    
 
-from completion_checks import CompletionChecks
-completion_checks = CompletionChecks(
-    application, db, Task, refresh_incontrol_status_for_board, lambda: INCONTROL_ENABLED,
-)
-
 from body_repair_sync import BodyRepair, register_body_repair_routes
 register_body_repair_routes(application)
-
-from incontrol_accounts import paused_closure_services, register_incontrol_accounts
-IncontrolAccount, personal_incontrol_client = register_incontrol_accounts(application, db)
 
 from yandex_requests import YandexRequests
 yandex_requests = YandexRequests(application, db, Task, Car, Elcar)
 application.add_template_global(yandex_requests.link_for, 'yandex_request_for')
 
-from incontrol_rejection_jobs import IncontrolRejections
-incontrol_rejections = IncontrolRejections(
-    application, db, Task, completion_checks, personal_incontrol_client,
-    lambda: os.getenv('INCONTROL_REJECTION_ENABLED', '0') == '1',
-)
-
-from incontrol_outbox import IncontrolOutbox
-incontrol_outbox = IncontrolOutbox(application, db, completion_checks, incontrol_rejections, yandex_requests)
+incontrol_integration = IncontrolIntegration(application, db, Task, Car, Elcar, yandex_requests, run_locked_sync_job)
+completion_checks = incontrol_integration.checks
+incontrol_outbox = incontrol_integration.outbox
 
 
 # Планировщик запускаем только если явно разрешено.

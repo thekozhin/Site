@@ -5,6 +5,8 @@
 """
 from datetime import timedelta
 
+from incontrol import incontrol_now
+
 import pytest
 
 
@@ -55,9 +57,9 @@ def test_бейджа_нет_когда_заявки_нет(app_ctx, клиен�
 
 
 def test_бейдж_появляется_при_открытой_заявке(app_ctx, клиент_с_задачей):
-    app_ctx.db.session.add(app_ctx.IncontrolStatus(
+    app_ctx.db.session.add(app_ctx.incontrol_integration.status_model(
         board_number='162345', has_open=True,
-        phase_name='Назначено.', checked_at=app_ctx.incontrol_now(),
+        phase_name='Назначено.', checked_at=incontrol_now(),
     ))
     app_ctx.db.session.commit()
 
@@ -68,10 +70,10 @@ def test_бейдж_появляется_при_открытой_заявке(ap
 
 def test_бейдж_гаснет_когда_проверка_устарела(app_ctx, клиент_с_задачей):
     # После порога данные уже ничего не утверждают
-    app_ctx.db.session.add(app_ctx.IncontrolStatus(
+    app_ctx.db.session.add(app_ctx.incontrol_integration.status_model(
         board_number='162345', has_open=True, phase_name='Назначено.',
-        checked_at=app_ctx.incontrol_now()
-        - timedelta(minutes=app_ctx.INCONTROL_STALE_MINUTES + 1),
+        checked_at=incontrol_now()
+        - timedelta(minutes=31),
     ))
     app_ctx.db.session.commit()
 

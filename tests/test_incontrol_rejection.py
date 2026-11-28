@@ -2,7 +2,7 @@ from copy import deepcopy
 import json
 from unittest.mock import Mock
 import pytest
-from incontrol_rejection import RejectionFlow, RejectionError
+from incontrol import RejectionFlow, RejectionError
 
 
 class Remote:
@@ -162,7 +162,7 @@ def test_act_is_not_signed_in_rejection_flow():
 
 
 def test_preparing_pending_email_signature_does_not_send_more_mail():
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=Remote(otp=True)
     assert drive_flow(r.flow())=='code'
     request=r.state['signature_request']
@@ -174,7 +174,7 @@ def test_preparing_pending_email_signature_does_not_send_more_mail():
 
 def test_explicit_resend_is_throttled_and_never_signs_without_code():
     import time
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=Remote(otp=True)
     assert drive_flow(r.flow())=='code'
     with pytest.raises(RejectionError,match='10 секунд'):drive_flow(r.flow(),'resend')

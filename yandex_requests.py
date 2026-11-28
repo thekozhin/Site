@@ -13,7 +13,7 @@ import click
 from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from completion_checks import utcnow
+from incontrol import utcnow
 from task_import_matching import active_repairs_for_board, manual_repair_candidates, match_imported_repair
 from yandex_mail import (
     INBOX,

@@ -3,7 +3,7 @@ import json
 import time
 from unittest.mock import Mock
 from incontrol import IncontrolClient
-from incontrol_session import capture_session, restore_session, ensure_session
+from incontrol import capture_session, restore_session, ensure_session
 
 
 def token(exp):

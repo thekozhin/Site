@@ -1,6 +1,8 @@
 """Частичное обновление не меняет сессию и не забирает flash/формы."""
 import pytest
 
+from incontrol import incontrol_now
+
 
 @pytest.fixture
 def index_client(app_ctx):
@@ -73,7 +75,7 @@ def test_new_and_completed_tasks_update_list_and_counters(index_client):
     mod, client, _ = index_client
     old = mod.Task.query.filter_by(board_number='164076').one()
     old.status = 'completed'
-    old.completed_at = mod.incontrol_now()
+    old.completed_at = incontrol_now()
     mod.db.session.add(mod.Task(board_number='164088', park='14 парк', status='in_repair',
                                description='Новая заявка', tag='in_work'))
     mod.db.session.commit()

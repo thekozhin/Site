@@ -12,7 +12,7 @@ import pytest
 import yandex_mail
 from openpyxl import Workbook
 
-from completion_checks import utcnow
+from incontrol import utcnow
 from test_completion_checks import complete, completion, run_check, saved_task
 from test_incontrol_rejection_jobs import rejection_page
 from yandex_mail import (MOSCOW, MAIL_TASK_AUTHOR, ImapConnectionError, MailError, OriginalMail,
@@ -1052,7 +1052,7 @@ def test_mail_replies_skip_parks_removed_from_folder_settings(app_ctx, monkeypat
 
 @pytest.mark.parametrize('author', [MAIL_TASK_AUTHOR, 'Приёмщик'])
 def test_unlinked_task_can_exclude_unrelated_incontrol_application(rejection_page, monkeypatch, author):
-    import incontrol_rejection_jobs as jobs
+    import incontrol as jobs
 
     mod, client, task, _, csrf = rejection_page
     task.author_open = author
@@ -1067,15 +1067,15 @@ def test_unlinked_task_can_exclude_unrelated_incontrol_application(rejection_pag
 
     response = client.post(f'/complete_task/{task.id}/incontrol-plan', data={'main_outcome': 'complete'}, headers=headers)
     urls = response.json
-    mod.incontrol_rejections.slots.acquire()
-    mod.incontrol_rejections.worker(urls['run_id'], 'inspect', None)
+    mod.incontrol_integration.rejections.slots.acquire()
+    mod.incontrol_integration.rejections.worker(urls['run_id'], 'inspect', None)
     status = client.get(urls['status_url']).json
     assert status['state'] == 'choose' and status['allow_unrelated']
 
     response = client.post(urls['action_url'], data={'action': 'select', 'remote_id': 'unrelated'}, headers=headers)
     assert response.status_code == 202
-    mod.incontrol_rejections.slots.acquire()
-    mod.incontrol_rejections.worker(urls['run_id'], 'inspect', None)
+    mod.incontrol_integration.rejections.slots.acquire()
+    mod.incontrol_integration.rejections.worker(urls['run_id'], 'inspect', None)
     status = client.get(urls['status_url']).json
     assert status['state'] == 'plan' and status['unrelated_remote']
     assert task.incontrol_task_id is None

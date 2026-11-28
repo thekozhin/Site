@@ -1,7 +1,7 @@
 from copy import deepcopy
 from unittest.mock import Mock
 import pytest
-from incontrol_completion import CompletionPreparation, CompletionPreparationError
+from incontrol import CompletionPreparation, CompletionPreparationError
 
 
 def tasks():

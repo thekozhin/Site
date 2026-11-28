@@ -123,12 +123,12 @@ def test_timeout_stays_within_remaining_operation_budget(monkeypatch):
 
 
 def test_completion_uses_slow_response_timeout(app_ctx, monkeypatch):
-    monkeypatch.setattr(app_ctx, 'INCONTROL_ENABLED', True)
+    monkeypatch.setattr(app_ctx.incontrol_integration, 'enabled', True)
     instance = Mock()
     instance.check_board_details.return_value = (False, None, None)
     factory = Mock(return_value=instance)
-    monkeypatch.setattr(app_ctx, '_make_incontrol_client', factory)
-    assert app_ctx.refresh_incontrol_status_for_board('162746', '14 парк', {'Заявка на ремонт'}) is None
+    monkeypatch.setattr(app_ctx.incontrol_integration, '_make_incontrol_client', factory)
+    assert app_ctx.incontrol_integration.refresh_incontrol_status_for_board('162746', '14 парк', {'Заявка на ремонт'}) is None
     factory.assert_called_once_with(timeout=25, interactive=True)
     instance.session.close.assert_called_once()
 

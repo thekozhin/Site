@@ -3,30 +3,30 @@ from copy import deepcopy
 from unittest.mock import Mock
 import pytest
 from flask import g
-from incontrol_child_plan import decisions_from_json,decisions_summary
-from incontrol_rejection import RejectionError
+from incontrol import incontrol_now, decisions_from_json,decisions_summary
+from incontrol import RejectionError
 from test_incontrol_rejection_jobs import rejection_page
 from test_incontrol_fulfillment import ServiceRemote
 
 
 def configure(page,monkeypatch,multiple=False):
-    import incontrol_rejection_jobs as jobs
+    import incontrol as jobs
     m,c,t,u,csrf=page
     t.incontrol_task_id=None;m.db.session.commit()
     remote=ServiceRemote(mixed=True)
-    monkeypatch.setattr(m.incontrol_rejections,'personal_client',lambda uid:remote.client)
+    monkeypatch.setattr(m.incontrol_integration.rejections,'personal_client',lambda uid:remote.client)
     monkeypatch.setattr(jobs,'find_open_main_tasks',Mock(return_value=[{'id':10,'type_work':{'work_name':'Заявка на сервисное обслуживание'}}]+([{'id':20,'type_work':{'work_name':'Заявка на ремонт'}}] if multiple else [])))
     # Dispatch workers explicitly to make transactions deterministic in the in-memory DB.
     def submit(row,action,code=None):row.state='running';m.db.session.commit()
-    monkeypatch.setattr(m.incontrol_rejections,'submit',submit)
+    monkeypatch.setattr(m.incontrol_integration.rejections,'submit',submit)
     return remote
 
 
 def run(page,action='inspect'):
-    m,c,t,u,csrf=page;row=m.incontrol_rejections.model.query.filter_by(task_id=t.id).one()
-    m.incontrol_rejections.slots.acquire();m.incontrol_rejections.worker(row.id,action,None)
+    m,c,t,u,csrf=page;row=m.incontrol_integration.rejections.model.query.filter_by(task_id=t.id).one()
+    m.incontrol_integration.rejections.slots.acquire();m.incontrol_integration.rejections.worker(row.id,action,None)
     m.db.session.expire_all()
-    return m.db.session.get(m.incontrol_rejections.model,row.id)
+    return m.db.session.get(m.incontrol_integration.rejections.model,row.id)
 
 
 def plan(page,remote):
@@ -42,7 +42,7 @@ def plan(page,remote):
     assert row.state=='plan'
     assert all(call[0]=='GET' for call in remote.calls)
     assert t.incontrol_task_id is None
-    return row,m.incontrol_rejections.unpack(row)
+    return row,m.incontrol_integration.rejections.unpack(row)
 
 
 @pytest.mark.parametrize('actions',[['complete','reject'],['complete','complete'],['reject','reject']])
@@ -54,7 +54,7 @@ def test_plan_and_each_child_decision_drive_matching_remote_task(rejection_page,
     decisions=[{'id':item['id'],'action':action,'work':f'Работы по задаче {item["id"]}'} for item,action in zip(p['child_plan'],actions)]
     text,mode=decisions_summary(p['child_plan'],decisions)
     form={'completed_work':text.replace('\n','\r\n'),'child_decisions':json.dumps(decisions),'action':'reject' if mode=='reject' else '',
-          'mileage':'100','work_in':(m.incontrol_now()-timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')}
+          'mileage':'100','work_in':(incontrol_now()-timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')}
     response=c.post(f'/complete_task/{t.id}',data=form,headers={'Accept':'application/json','X-CSRFToken':csrf})
     assert response.status_code==202
     assert t.status=='in_repair'
@@ -84,7 +84,7 @@ def test_multiple_parents_require_explicit_owned_selection_without_remote_writes
     assert c.post(url,data={'action':'select','remote_id':'10'},headers={'X-CSRFToken':csrf,'Accept':'application/json'}).status_code==202
     row=run(rejection_page)
     assert row.state=='plan'
-    assert m.incontrol_rejections.unpack(row)['remote_id']==10
+    assert m.incontrol_integration.rejections.unpack(row)['remote_id']==10
     assert all(call[0]=='GET' for call in remote.calls)
 
 
@@ -104,7 +104,7 @@ def test_invalid_decision_json_is_rejected(raw):
 
 
 def test_each_repair_child_receives_its_own_text():
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     remote=ServiceRemote(mixed=True)
     remote.tasks[12]['additional_fields']=[{'id':501,'field_name':'Выполненные услуги','value':None}]
     remote.state['child_decisions']=[{'id':11,'action':'complete','work':'Замена фитинга'}, {'id':12,'action':'complete','work':'Замена патрубка'}]
@@ -123,7 +123,7 @@ def test_changed_links_after_plan_do_not_modify_remote_tasks(rejection_page,monk
     remote.tasks[13]=deepcopy(remote.tasks[12]);remote.tasks[13]['id']=13
     remote.tasks[13]['custom_field_dependent_tasks']=[{'linked_task':13,'dependent_task':10}]
     remote.tasks[10]['additional_fields'][0]['value'].append(13)
-    data={'completed_work':text,'child_decisions':json.dumps(decisions),'work_in':(m.incontrol_now()-timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M'),'mileage':'100'}
+    data={'completed_work':text,'child_decisions':json.dumps(decisions),'work_in':(incontrol_now()-timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M'),'mileage':'100'}
     assert c.post(f'/complete_task/{t.id}',data=data,headers={'X-CSRFToken':csrf,'Accept':'application/json'}).status_code==202
     row=run(rejection_page,'prepare')
     assert row.state=='error' and t.status=='in_repair'
@@ -137,22 +137,22 @@ def test_imported_parent_binding_is_used_when_board_has_other_parent(rejection_p
     assert c.post(f'/complete_task/{t.id}/incontrol-plan',headers={'Accept':'application/json','X-CSRFToken':csrf}).status_code==202
     row=run(rejection_page)
     assert row.state=='plan'
-    assert m.incontrol_rejections.unpack(row)['remote_id']==10
+    assert m.incontrol_integration.rejections.unpack(row)['remote_id']==10
     assert all(call[0]=='GET' for call in remote.calls)
 
 
 @pytest.mark.parametrize('reject',[False,True])
 def test_absent_remote_keeps_original_completion_and_rejection(rejection_page,monkeypatch,reject):
     from datetime import timedelta
-    import incontrol_rejection_jobs as jobs
+    import incontrol as jobs
     m,c,t,u,csrf=rejection_page;remote=configure(rejection_page,monkeypatch)
     monkeypatch.setattr(jobs,'find_open_main_tasks',Mock(return_value=[]))
     assert c.post(f'/complete_task/{t.id}/incontrol-plan',headers={'X-CSRFToken':csrf,'Accept':'application/json'}).status_code==202
     row=run(rejection_page)
-    assert row.state=='plan' and m.incontrol_rejections.unpack(row)['no_remote']
-    assert not m.incontrol_rejections.unpack(row).get('child_plan')
+    assert row.state=='plan' and m.incontrol_integration.rejections.unpack(row)['no_remote']
+    assert not m.incontrol_integration.rejections.unpack(row).get('child_plan')
     data={'completed_work':'Борт на линии' if reject else 'Выполнена диагностика','action':'reject' if reject else '',
-          'mileage':'100','work_in':(m.incontrol_now()-timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')}
+          'mileage':'100','work_in':(incontrol_now()-timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')}
     assert c.post(f'/complete_task/{t.id}',data=data,headers={'X-CSRFToken':csrf,'Accept':'application/json'}).status_code==202
     row=run(rejection_page,'prepare')
     assert row.state=='no_remote'
@@ -175,7 +175,7 @@ def test_blanket_rejection_uses_one_reason_and_no_child_services(rejection_page,
             assert body=={'phase_id':8}
     assert next(f['value'] for f in remote.tasks[10]['additional_fields'] if f.get('field_name')=='Причина отклонения')==data['completed_work']
     assert len([call for call in remote.calls if call[:2]==('POST','/reports/sign/')])==1
-    assert 'child_decisions' not in m.incontrol_rejections.unpack(row)
+    assert 'child_decisions' not in m.incontrol_integration.rejections.unpack(row)
     c.post(f'/complete_task/{t.id}',data={**data,'incontrol_rejection_run':row.id},headers={'X-CSRFToken':csrf})
     assert t.status=='completed' and t.reject
     assert t.completed_work==data['completed_work']
@@ -189,13 +189,13 @@ def test_parent_result_is_explicit_even_if_all_children_rejected(rejection_page,
     text,_=decisions_summary(p['child_plan'],decisions)
     remote.files.append({'id':101,'task':10,'file':'https://example.test/act.pdf','upload_type':'akt_to_sign','report_type':{'id':31}})
     data={'main_outcome':'complete','action':'','completed_work':text,'child_decisions':json.dumps(decisions),'mileage':'100',
-          'work_in':(m.incontrol_now()-timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')}
+          'work_in':(incontrol_now()-timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')}
     assert c.post(f'/complete_task/{t.id}',data=data,headers={'X-CSRFToken':csrf,'Accept':'application/json'}).status_code==202
     row=run(rejection_page,'prepare')
     assert row.state=='done',row.message
     assert remote.tasks[10]['phase']['id']==4
     assert remote.tasks[11]['phase']['id']==remote.tasks[12]['phase']['id']==8
-    assert m.incontrol_rejections.unpack(row)['mode']=='complete'
+    assert m.incontrol_integration.rejections.unpack(row)['mode']=='complete'
 
 
 @pytest.mark.parametrize('invalid',['empty_reason','child_decisions','wrong_action','completed_child'])
@@ -218,9 +218,9 @@ def test_invalid_blanket_rejection_cannot_change_remote(rejection_page,monkeypat
 def test_old_signed_process_accepts_new_selector_without_changing_its_outcome(rejection_page,monkeypatch):
     from datetime import timedelta
     m,c,t,u,csrf=rejection_page
-    data={'action':'','completed_work':'Диагностика','mileage':'100','work_in':(m.incontrol_now()-timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')}
+    data={'action':'','completed_work':'Диагностика','mileage':'100','work_in':(incontrol_now()-timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')}
     assert c.post(f'/complete_task/{t.id}',data=data,headers={'X-CSRFToken':csrf,'Accept':'application/json'}).status_code==202
-    row=m.incontrol_rejections.model.query.filter_by(task_id=t.id).one();row.state='done';m.db.session.commit()
+    row=m.incontrol_integration.rejections.model.query.filter_by(task_id=t.id).one();row.state='done';m.db.session.commit()
     c.post(f'/complete_task/{t.id}',data={**data,'main_outcome':'reject','incontrol_rejection_run':row.id},headers={'X-CSRFToken':csrf})
     assert t.status=='in_repair'
     c.post(f'/complete_task/{t.id}',data={**data,'main_outcome':'complete','incontrol_rejection_run':row.id},headers={'X-CSRFToken':csrf})
@@ -234,7 +234,7 @@ def test_summary_text_does_not_block_individual_decisions_or_parent_outcome(reje
     remote.files.append({'id':101,'task':10,'file':'https://example.test/act.pdf','upload_type':'akt_to_sign','report_type':{'id':31}})
     decisions=[{'id':x['id'],'action':'reject','work':'Неисправность не подтвердилась'} for x in p['child_plan']]
     form={'completed_work':'Проверка выполнена','child_decisions':json.dumps(decisions),'action':'',
-          'work_in':(m.incontrol_now()-timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M'),'mileage':'100'}
+          'work_in':(incontrol_now()-timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M'),'mileage':'100'}
     response=c.post(f'/complete_task/{t.id}',data=form,headers={'X-CSRFToken':csrf,'Accept':'application/json'})
     assert response.status_code==202
     row=run(rejection_page,'prepare')
@@ -254,7 +254,7 @@ def test_work_summary_contains_only_individual_comments():
 
 
 def test_legacy_work_display_removes_generated_descriptions_only():
-    from incontrol_child_plan import plain_completed_work
+    from incontrol import plain_completed_work
     assert plain_completed_work('Электросистема. Электрика дверей — Выполнено: Ремонт пинов фишки дверей')=='Ремонт пинов фишки дверей'
     assert plain_completed_work('Течь ОЖ — Отклонено: Течь не найдена')=='Течь не найдена'
     assert plain_completed_work('Диагностика: проверены двери\nЗаменён разъём')=='Диагностика: проверены двери\nЗаменён разъём'

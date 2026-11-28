@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 from openpyxl import load_workbook
 
-from completion_checks import utcnow
+from incontrol import utcnow
 from incontrol import IncontrolError
 from test_completion_checks import complete, completion, run_check, saved_task
 from test_incontrol_rejection_jobs import rejection_page
@@ -101,7 +101,7 @@ def test_pausing_incontrol_stops_requests_from_an_already_open_form(rejection_pa
     mod, client, task, _, csrf = rejection_page
     headers = {'X-CSRFToken': csrf, 'Accept': 'application/json'}
     personal_client = Mock()
-    monkeypatch.setattr(mod.incontrol_rejections, 'personal_client', personal_client)
+    monkeypatch.setattr(mod.incontrol_integration.rejections, 'personal_client', personal_client)
     path = f'/complete_task/{task.id}'
     assert client.post('/settings/incontrol', headers=headers,
                        data={'action': 'closure_checks', 'yandex_mail': '1'}).status_code == 302
@@ -192,14 +192,14 @@ def test_paused_mail_clears_previous_lookup_for_unlinked_task(completion, monkey
 
 
 def test_personal_planning_outage_can_close_with_locally_entered_work(rejection_page, monkeypatch):
-    import incontrol_rejection_jobs as jobs
+    import incontrol as jobs
     mod, client, task, _, csrf = rejection_page
     headers = {'X-CSRFToken': csrf, 'Accept': 'application/json'}
     monkeypatch.setattr(jobs, 'ensure_session', Mock(side_effect=TimeoutError('InControl не ответил')))
     response = client.post(f'/complete_task/{task.id}/incontrol-plan', data={'main_outcome': 'reject', 'action': 'reject'}, headers=headers)
     run_id = response.json['run_id']
-    mod.incontrol_rejections.slots.acquire()
-    mod.incontrol_rejections.worker(run_id, 'inspect', None)
+    mod.incontrol_integration.rejections.slots.acquire()
+    mod.incontrol_integration.rejections.worker(run_id, 'inspect', None)
     status = client.get(response.json['status_url']).json
     assert status['state'] == 'unavailable' and status['planning']
     response = client.post(f'/complete_task/{task.id}', data={'action': 'reject', 'main_outcome': 'reject',
@@ -209,7 +209,7 @@ def test_personal_planning_outage_can_close_with_locally_entered_work(rejection_
     assert task.status == 'completed'
     entry = mod.incontrol_outbox.model.query.one()
     assert entry.is_reject and entry.remote_id == 10 and entry.completed_work == 'Отклонено после осмотра'
-    assert mod.db.session.get(mod.incontrol_rejections.model, run_id).state == 'consumed'
+    assert mod.db.session.get(mod.incontrol_integration.rejections.model, run_id).state == 'consumed'
 
 
 def test_each_selected_park_has_its_own_list_export_and_acknowledgements(completion, monkeypatch):
@@ -244,7 +244,7 @@ def test_each_selected_park_has_its_own_list_export_and_acknowledgements(complet
 
 
 def test_after_personal_outage_only_the_submitted_result_can_be_recorded(rejection_page, monkeypatch):
-    import incontrol_rejection_jobs as jobs
+    import incontrol as jobs
     mod, client, task, _, csrf = rejection_page
     headers = {'X-CSRFToken': csrf, 'Accept': 'application/json'}
     monkeypatch.setattr(jobs, 'ensure_session', Mock(side_effect=TimeoutError('InControl не ответил')))
@@ -253,8 +253,8 @@ def test_after_personal_outage_only_the_submitted_result_can_be_recorded(rejecti
     response = client.post(path, data=fields, headers=headers)
     assert response.status_code == 202
     run_id = response.json['run_id']
-    mod.incontrol_rejections.slots.acquire()
-    mod.incontrol_rejections.worker(run_id, 'prepare', None)
+    mod.incontrol_integration.rejections.slots.acquire()
+    mod.incontrol_integration.rejections.worker(run_id, 'prepare', None)
     assert client.get(response.json['status_url']).json['state'] == 'unavailable'
     wrong = {**fields, 'offline_run_id': run_id, 'completed_work': 'Другие данные'}
     assert 'Данные отличаются' in client.post(path, data=wrong, headers=headers).text

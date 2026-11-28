@@ -1,8 +1,8 @@
 from unittest.mock import Mock
 import pytest
 from test_incontrol_rejection import Remote
-from incontrol_fulfillment import FulfillmentFlow
-from incontrol_rejection import RejectionError
+from incontrol import FulfillmentFlow
+from incontrol import RejectionError
 
 
 class CompletedRemote(Remote):
@@ -98,7 +98,7 @@ class ServiceRemote(CompletedRemote):
 
 @pytest.mark.parametrize('mixed',[False,True])
 def test_service_children_use_phase_only_and_optional_repair_services(mixed):
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=ServiceRemote(mixed=mixed)
     assert drive_flow(r.flow())=='done'
     service_id=12 if mixed else 11
@@ -142,7 +142,7 @@ def test_service_does_not_skip_disabled_or_duplicate_services_fields():
 @pytest.mark.parametrize('mode',['complete','reject'])
 def test_closing_reassigns_other_performer_before_child_updates(mode):
     from test_incontrol_rejection import Remote
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=CompletedRemote() if mode=='complete' else Remote()
     r.tasks[10]['user_performer']={'id':'previous-user'}
     assert drive_flow(r.flow())=='done'
@@ -174,7 +174,7 @@ def test_failed_performer_change_keeps_children_untouched(failure):
 @pytest.mark.parametrize('previous',[None,'previous-user'])
 def test_current_closer_is_assigned_even_when_bid_is_already_signed(mode,previous):
     from test_incontrol_rejection import Remote
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=CompletedRemote() if mode=='complete' else Remote()
     r.tasks[10]['user_performer']={'id':previous} if previous else None
     r.files[0]['upload_type']='bid_signed_by_performer'
@@ -197,7 +197,7 @@ def test_accepted_request_changes_only_performer_without_repeating_phase():
 @pytest.mark.parametrize('parent_mode',['complete','reject'])
 def test_rejected_child_receives_individual_comment(field_name,parent_mode):
     from test_incontrol_rejection import Remote
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=CompletedRemote() if parent_mode=='complete' else Remote()
     r.tasks[11]['additional_fields']=[{'id':501,'field_name':field_name,'value':None}]
     r.state['child_decisions']=[{'id':11,'action':'reject','work':'Неисправность не подтвердилась'}]
@@ -213,7 +213,7 @@ def test_rejected_child_receives_individual_comment(field_name,parent_mode):
 
 def test_blanket_rejection_does_not_copy_common_reason_to_child_services():
     from test_incontrol_rejection import Remote
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=Remote();r.tasks[11]['additional_fields']=[{'id':501,'field_name':'Выполнение услуги','value':None}]
     assert drive_flow(r.flow())=='done'
     assert r.tasks[11]['additional_fields'][0]['value'] is None
@@ -239,7 +239,7 @@ def comment_writes(remote):
 
 
 def test_service_text_is_copied_exactly_before_main_completion_attempt():
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=CompletedRemote();r.state['reason']='Долив ОЖ    Готов 15.11.2026 в 20-56'
     assert drive_flow(r.flow())=='done'
     assert main_comment(r)==r.state['reason']
@@ -251,7 +251,7 @@ def test_service_text_is_copied_exactly_before_main_completion_attempt():
 
 def test_multiple_children_include_rejected_services_on_separate_lines_without_deduplication():
     from copy import deepcopy
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=ServiceRemote(mixed=True)
     r.tasks[12]['additional_fields']=[{'id':502,'field_name':'Выполнение услуги','value':None}]
     r.tasks[13]=deepcopy(r.tasks[11]);r.tasks[13]['id']=13
@@ -265,7 +265,7 @@ def test_multiple_children_include_rejected_services_on_separate_lines_without_d
 
 
 def test_comment_uses_actual_already_rejected_child_services():
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=CompletedRemote();r.tasks[11]['phase']={'id':8,'phase_name':'Отклонено.'}
     r.tasks[11]['additional_fields'][0]['value']='Ранее проверено, неисправности нет'
     r.state['child_decisions']=[{'id':11,'action':'reject','work':'Этот текст в дочернюю не записывался'}]
@@ -287,7 +287,7 @@ def test_comment_permission_is_checked_before_any_mutation(failure):
 
 
 def test_comment_timeout_preserves_existing_text_and_does_not_duplicate_on_resume():
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=CompletedRemote();r.state['reason']='Замена разъёма'
     r.tasks[10]['additional_fields'][-1]['value']='Осмотр при приёмке'
     original=r.client.session.request.side_effect
@@ -310,7 +310,7 @@ def test_comment_timeout_preserves_existing_text_and_does_not_duplicate_on_resum
 
 @pytest.mark.parametrize('failure',['denied','not_applied'])
 def test_comment_failure_prevents_main_completion(failure):
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=CompletedRemote();original=r.client.session.request.side_effect
     def request(method,url,json=None,**kwargs):
         if method=='PATCH' and url.endswith('/tasks/10/') and any(f['id']==1108 for f in (json or {}).get('additional_fields',[])):
@@ -323,7 +323,7 @@ def test_comment_failure_prevents_main_completion(failure):
 
 
 def test_comment_added_during_child_update_is_preserved():
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=CompletedRemote();original=r.client.session.request.side_effect
     def request(method,url,json=None,**kwargs):
         response=original(method,url,json=json,**kwargs)
@@ -336,7 +336,7 @@ def test_comment_added_during_child_update_is_preserved():
 
 
 def test_empty_or_missing_services_do_not_replace_main_comment():
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=ServiceRemote();r.tasks[10]['additional_fields'][-1]['value']='Ручное примечание'
     assert drive_flow(r.flow())=='done'
     assert main_comment(r)=='Ручное примечание'
@@ -344,7 +344,7 @@ def test_empty_or_missing_services_do_not_replace_main_comment():
 
 
 def test_completed_process_is_not_backfilled_on_resume():
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=CompletedRemote()
     assert drive_flow(r.flow())=='done'
     r.tasks[10]['additional_fields'][-1]['value']=None
@@ -383,7 +383,7 @@ class LineRepairRemote(ServiceRemote):
 
 
 def test_line_repair_posts_services_to_thread_before_main_completion():
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=LineRepairRemote()
     assert drive_flow(r.flow())=='done'
     assert [c['comment'] for c in r.comments]==['Долив ОЖ']
@@ -395,7 +395,7 @@ def test_line_repair_posts_services_to_thread_before_main_completion():
 
 
 def test_line_repair_preserves_other_comments_and_collects_rejected_services():
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=LineRepairRemote(multiple=True)
     existing={'id':1,'task':10,'comment':'Комментарий при создании'};r.comments.append(existing.copy())
     r.state['child_decisions']=[{'id':11,'action':'complete','work':'Долив ОЖ'}, {'id':12,'action':'reject','work':'Неисправности нет'}]
@@ -405,7 +405,7 @@ def test_line_repair_preserves_other_comments_and_collects_rejected_services():
 
 
 def test_line_repair_checks_all_comment_pages_before_posting():
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=LineRepairRemote();r.comments=[{'id':i+1,'task':10,'comment':f'Запись {i}'} for i in range(100)]
     r.comments.append({'id':101,'task':10,'comment':'Долив ОЖ'})
     assert drive_flow(r.flow())=='done'
@@ -415,7 +415,7 @@ def test_line_repair_checks_all_comment_pages_before_posting():
 
 
 def test_line_repair_lost_post_response_is_recovered_without_duplicate():
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=LineRepairRemote();original=r.client.session.request.side_effect;lost=True
     def request(method,url,json=None,**kwargs):
         nonlocal lost
@@ -432,7 +432,7 @@ def test_line_repair_lost_post_response_is_recovered_without_duplicate():
 
 
 def test_line_repair_uncertain_post_without_visible_comment_is_not_repeated():
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=LineRepairRemote();original=r.client.session.request.side_effect;posts=0
     def request(method,url,json=None,**kwargs):
         nonlocal posts
@@ -446,7 +446,7 @@ def test_line_repair_uncertain_post_without_visible_comment_is_not_repeated():
 
 
 def test_line_repair_waits_for_comment_visibility_and_does_not_repeat_post():
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=LineRepairRemote();r.hide_comments=True
     with pytest.raises(RejectionError,match='пока не подтвердил'):drive_flow(r.flow())
     assert len(r.comments)==1 and r.tasks[10]['phase']['id']!=4
@@ -457,7 +457,7 @@ def test_line_repair_waits_for_comment_visibility_and_does_not_repeat_post():
 
 
 def test_line_repair_definite_post_denial_can_be_retried_after_permission_fix():
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=LineRepairRemote();original=r.client.session.request.side_effect
     def request(method,url,json=None,**kwargs):
         if method=='POST' and url.endswith('/tasks-comments/'):
@@ -474,7 +474,7 @@ def test_line_repair_definite_post_denial_can_be_retried_after_permission_fix():
 
 @pytest.mark.parametrize('data',[{}, {'results':[]}, {'results':[{'id':1,'task':99,'comment':'Чужая запись'}],'next':None}])
 def test_bad_comment_list_cannot_be_treated_as_empty(data):
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=LineRepairRemote();original=r.client.session.request.side_effect
     def request(method,url,json=None,**kwargs):
         if method=='GET' and url.endswith('/comments/'):
@@ -487,7 +487,7 @@ def test_bad_comment_list_cannot_be_treated_as_empty(data):
 
 
 def test_line_repair_with_actual_comment_field_keeps_using_field():
-    from incontrol_rejection_jobs import drive_flow
+    from incontrol import drive_flow
     r=LineRepairRemote();r.tasks[10]['additional_fields'].append({'id':1108,'field_name':'Комментарий','value':None})
     assert drive_flow(r.flow())=='done'
     assert main_comment(r)=='Долив ОЖ' and not r.comments
